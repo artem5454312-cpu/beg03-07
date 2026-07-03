@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<style>
+  body{ background:var(--ink); color:var(--text-on-ink); }
+  main{ max-width:900px; }
+  table{ width:100%; border-collapse:collapse; margin-top:12px; }
+  th, td{ text-align:left; padding:8px 6px; border-bottom:1px solid var(--line-on-ink); font-size:13px; }
+  th{ color:var(--text-on-ink-dim); font-weight:600; text-transform:uppercase; font-size:11px; }
+  .stat-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:16px; }
+  .stat-card{ border:1px solid var(--line-on-ink); border-radius:14px; padding:14px; }
+  .stat-card .n{ font-family:-apple-system,'SF Pro Display',sans-serif; font-weight:700; font-size:32px; }
+  .stat-card .l{ font-size:11px; color:var(--text-on-ink-dim); }
+</style>
+</head>
+<body>
+<main style="margin:6vh auto; padding:0 20px;">
+  <h1 class="display" style="font-size:44px;">Admin</h1>
+
+  <div id="loginBox">
+    <div class="field"><label>Пароль</label><input id="pw" type="password"></div>
+    <button class="btn" id="loginBtn">Войти</button>
+    <div class="error-box" id="err"></div>
+  </div>
+
+  <div id="panel" style="display:none;">
+    <div class="stat-grid" id="stats"></div>
+
+    <h2 class="display" style="font-size:28px;margin-top:32px;">Пользователи</h2>
+    <table id="usersTable"><thead><tr><th>ID</th><th>Логин</th><th>Имя</th><th>Город</th><th>Статус</th><th></th></tr></thead><tbody></tbody></table>
+
+    <h2 class="display" style="font-size:28px;margin-top:32px;">Городские чаты</h2>
+    <table id="chatsTable"><thead><tr><th>Город</th><th>Сообщений</th></tr></thead><tbody></tbody></table>
+
+    <h2 class="display" style="font-size:28px;margin-top:32px;">Жалобы</h2>
+    <table id="reportsTable"><thead><tr><th>Автор</th><th>Сообщение</th><th>Когда</th></tr></thead><tbody></tbody></table>
+  </div>
+</main>
+<script>
+let token = null;
+async function api(path, opts={}) {
+  const res = await fetch('/api/admin'+path, {
+    ...opts,
+    headers: { 'Content-Type':'application/json', ...(token?{Authorization:'Bearer '+token}:{}) }
+  });
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.error||'Ошибка');
+  return data;
+}
+
+document.getElementById('loginBtn').onclick = async () => {
+  try {
+    const r = await api('/login', { method:'POST', body: JSON.stringify({ password: document.getElementById('pw').value }) });
+    token = r.token;
+    document.getElementById('loginBox').style.display='none';
+    document.getElementById('panel').style.display='block';
+    loadAll();
+  } catch(e){ document.getElementById('err').textContent = e.message; }
+};
+
+async function loadAll(){
+  const stats = await api('/stats');
+  document.getElementById('stats').innerHTML = `
+    <div class="stat-card"><div class="n">${stats.users}</div><div class="l">Пользователей</div></div>
+    <div class="stat-card"><div class="n">${stats.cityChats}</div><div class="l">Городских чатов</div></div>
+    <div class="stat-card"><div class="n">${stats.chatMessages}</div><div class="l">Сообщений</div></div>
+    <div class="stat-card"><div class="n">${stats.pendingReports}</div><div class="l">Жалоб</div></div>`;
+
+  const users = await api('/users');
+  document.querySelector('#usersTable tbody').innerHTML = users.map(u=>`
+    <tr><td>${u.id}</td><td>${u.username}</td><td>${u.name||''}</td><td>${u.city||''}</td>
+    <td>${u.is_blocked?'Заблокирован':'Активен'}</td>
+    <td><button data-id="${u.id}" data-blocked="${u.is_blocked}" class="btn ghost" style="padding:4px 8px;">${u.is_blocked?'Разблокировать':'Забанить'}</button></td></tr>`).join('');
+  document.querySelectorAll('#usersTable button').forEach(b=>{
+    b.onclick = async ()=>{
+      const blocked = b.dataset.blocked === 'true';
+      await api(`/users/${b.dataset.id}/${blocked?'unban':'ban'}`, { method:'POST' });
+      loadAll();
+    };
+  });
+
+  const chats = await api('/chats');
+  document.querySelector('#chatsTable tbody').innerHTML = chats.map(c=>`<tr><td>${c.city_name}</td><td>${c.messages}</td></tr>`).join('');
+
+  const reports = await api('/reports');
+  document.querySelector('#reportsTable tbody').innerHTML = reports.map(r=>`<tr><td>${r.message_author}</td><td>${r.content}</td><td>${new Date(r.created_at).toLocaleString()}</td></tr>`).join('') || '<tr><td colspan="3">Жалоб нет</td></tr>';
+}
+</script>
+</body>
+</html>

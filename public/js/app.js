@@ -177,21 +177,19 @@ function viewOnboarding() {
   document.getElementById('app').innerHTML = `
     <div class="auth-wrap"><div class="auth-card">
       <h1 class="display screen-title">Профиль</h1>
-      <p class="screen-sub">Это увидят в городском чате.</p>
+      <p class="screen-sub">Это увидят другие в общем чате.</p>
       <div class="field"><label>Имя</label><input id="name" type="text"></div>
       <div class="field"><label>Профессия (необязательно)</label><input id="profession" type="text"></div>
       <div class="field"><label>Пол</label>
         <select id="gender"><option value="">Не указывать</option><option>Женский</option><option>Мужской</option></select>
       </div>
-      <div class="field"><label>Город</label><input id="city" type="text" placeholder="Например: Алматы"></div>
       <button class="btn block" id="go">Готово → к агенту</button>
     </div></div>`;
   document.getElementById('go').onclick = async () => {
     await Api.post('/auth/profile-setup', {
       name: document.getElementById('name').value,
       profession: document.getElementById('profession').value,
-      gender: document.getElementById('gender').value,
-      city: document.getElementById('city').value
+      gender: document.getElementById('gender').value
     });
     location.hash = '#/agent';
   };
@@ -199,86 +197,84 @@ function viewOnboarding() {
 
 /* ---------------- AGENT ---------------- */
 
-// Голосовой ввод через встроенный в браузер Web Speech API — используется только
-// в общем чате. На iOS Safari поддержка ограничена/нестабильна — в чате с агентом
-// вместо этого используется запись звука + распознавание через Whisper (см. ниже).
-function attachVoiceInput(micBtn, textarea) {
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Recognition) { micBtn.style.display = 'none'; return; }
-  const rec = new Recognition();
-  rec.lang = 'ru-RU';
-  rec.interimResults = false;
-  rec.continuous = false;
-  let listening = false;
+// Универсальный "зажми и запиши" рекордер — как кнопка голосового в Telegram.
+// Зажал (pointerdown) — пишет, отпустил (pointerup) — останавливает и отдаёт запись.
+// Короткие случайные касания (<400мс) игнорируются, чтобы не улетали пустые сообщения.
+function attachPressHoldRecorder(btn, { isEnabled, onDone, maxMs = 60000 }) {
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return;
+  let mediaRecorder = null, chunks = [], stream = null, active = false, startedAt = 0, maxTimer = null;
 
-  rec.onresult = (e) => {
-    const text = Array.from(e.results).map(r => r[0].transcript).join(' ');
-    textarea.value = (textarea.value ? textarea.value + ' ' : '') + text;
-  };
-  rec.onend = () => { listening = false; micBtn.classList.remove('recording'); };
-  rec.onerror = () => { listening = false; micBtn.classList.remove('recording'); showToast('Не удалось распознать речь'); };
-
-  micBtn.onclick = () => {
-    if (listening) { rec.stop(); return; }
-    listening = true;
-    micBtn.classList.add('recording');
-    rec.start();
-  };
-}
-
-// Голосовой ввод для чата с агентом: записываем звук через микрофон и отправляем
-// на сервер, где его распознаёт Whisper. Надёжнее браузерного распознавания на iOS.
-function attachWhisperVoiceInput(micBtn, textarea) {
-  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-    micBtn.style.display = 'none';
-    return;
-  }
-  let mediaRecorder = null;
-  let chunks = [];
-  let recording = false;
-
-  micBtn.onclick = async () => {
-    if (recording) { mediaRecorder.stop(); return; }
-
-    let stream;
+  async function start(e) {
+    if (!isEnabled() || active) return;
+    e.preventDefault();
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
       showToast('Нет доступа к микрофону');
       return;
     }
-
     chunks = [];
     mediaRecorder = new MediaRecorder(stream);
-    mediaRecorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-    mediaRecorder.onstop = async () => {
-      recording = false;
-      micBtn.classList.remove('recording');
-      stream.getTracks().forEach(t => t.stop());
-
-      const blob = new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-      const dataUrl = await new Promise((resolve) => {
-        const r = new FileReader();
-        r.onload = () => resolve(r.result);
-        r.readAsDataURL(blob);
-      });
-
-      micBtn.disabled = true;
-      showToast('Распознаю речь…');
-      try {
-        const res = await Api.post('/agent/transcribe', { audio: dataUrl });
-        if (res.text) textarea.value = (textarea.value ? textarea.value + ' ' : '') + res.text;
-        else showToast('Не удалось разобрать речь');
-      } catch (e) {
-        showToast(e.message || 'Не удалось распознать речь');
-      }
-      micBtn.disabled = false;
-    };
-
+    mediaRecorder.ondataavailable = (ev) => { if (ev.data.size) chunks.push(ev.data); };
     mediaRecorder.start();
-    recording = true;
-    micBtn.classList.add('recording');
-  };
+    active = true;
+    startedAt = Date.now();
+    btn.classList.add('recording');
+    maxTimer = setTimeout(stop, maxMs);
+  }
+
+  function stop() {
+    if (!active) return;
+    active = false;
+    clearTimeout(maxTimer);
+    btn.classList.remove('recording');
+    const duration = Date.now() - startedAt;
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      if (duration < 400) return;
+      onDone(new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' }));
+    };
+    mediaRecorder.stop();
+  }
+
+  btn.addEventListener('pointerdown', start);
+  btn.addEventListener('pointerup', stop);
+  btn.addEventListener('pointerleave', stop);
+  btn.addEventListener('pointercancel', stop);
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.readAsDataURL(blob);
+  });
+}
+
+// Собирает textarea + одну кнопку "микрофон/отправить": пока поле пустое — кнопка это
+// микрофон (зажми и говори), как только начал печатать — превращается в "отправить".
+function setupComposer({ textarea, micSendBtn, onSend, onVoice }) {
+  function hasText() { return textarea.value.trim().length > 0; }
+  function updateIcon() {
+    micSendBtn.innerHTML = hasText()
+      ? `<svg viewBox="0 0 24 24" fill="currentColor">${SEND_ICON}</svg>`
+      : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MIC_ICON}</svg>`;
+  }
+  textarea.addEventListener('input', updateIcon);
+  updateIcon();
+
+  micSendBtn.addEventListener('click', () => {
+    if (!hasText()) return; // в режиме микрофона клик ничего не делает — только зажатие
+    const content = textarea.value.trim();
+    textarea.value = '';
+    updateIcon();
+    onSend(content);
+  });
+
+  attachPressHoldRecorder(micSendBtn, {
+    isEnabled: () => !hasText(),
+    onDone: onVoice
+  });
 }
 
 const MIC_ICON = '<path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z"/><path d="M19 11a7 7 0 01-14 0M12 19v3"/>';
@@ -294,11 +290,8 @@ async function viewAgent() {
     <div class="chat-log" id="log"></div>
     <div class="chat-input">
       <textarea id="text" placeholder="Напиши агенту…"></textarea>
-      <button class="btn icon mic" id="mic" aria-label="Голосовой ввод"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MIC_ICON}</svg></button>
-      <button class="btn icon" id="send" aria-label="Отправить"><svg viewBox="0 0 24 24" fill="currentColor">${SEND_ICON}</svg></button>
+      <button class="btn icon mic" id="micSend" aria-label="Голос или отправить"></button>
     </div>`;
-
-  attachWhisperVoiceInput(document.getElementById('mic'), document.getElementById('text'));
 
   function scrollLogToBottom() {
     document.getElementById('main').scrollTop = document.getElementById('main').scrollHeight;
@@ -313,13 +306,8 @@ async function viewAgent() {
   }
   await loadHistory();
 
-  document.getElementById('send').onclick = async () => {
-    const ta = document.getElementById('text');
-    const content = ta.value.trim();
-    if (!content) return;
-    ta.value = '';
+  async function sendToAgent(content) {
     const log = document.getElementById('log');
-    log.innerHTML += `<div class="msg user">${escapeHtml(content)}</div>`;
     log.innerHTML += `<div class="msg agent" id="pending">…</div>`;
     scrollLogToBottom();
     try {
@@ -329,7 +317,38 @@ async function viewAgent() {
       document.getElementById('pending').outerHTML = `<div class="msg agent">Ошибка: ${escapeHtml(e.message)}</div>`;
     }
     scrollLogToBottom();
-  };
+  }
+
+  setupComposer({
+    textarea: document.getElementById('text'),
+    micSendBtn: document.getElementById('micSend'),
+    onSend: (content) => {
+      const log = document.getElementById('log');
+      log.innerHTML += `<div class="msg user">${escapeHtml(content)}</div>`;
+      scrollLogToBottom();
+      sendToAgent(content);
+    },
+    onVoice: async (blob) => {
+      // Голосовое сразу уходит "в фон": распознаём Whisper'ом и, как только получили
+      // текст, тут же отправляем его агенту — без промежуточного показа в поле ввода.
+      const dataUrl = await blobToDataUrl(blob);
+      const log = document.getElementById('log');
+      log.innerHTML += `<div class="msg user" id="pendingVoice">🎤 Распознаю голосовое…</div>`;
+      scrollLogToBottom();
+      try {
+        const tr = await Api.post('/agent/transcribe', { audio: dataUrl });
+        const text = (tr.text || '').trim();
+        if (!text) {
+          document.getElementById('pendingVoice').outerHTML = `<div class="msg user">🎤 (не удалось разобрать речь)</div>`;
+          return;
+        }
+        document.getElementById('pendingVoice').outerHTML = `<div class="msg user">${escapeHtml(text)}</div>`;
+        sendToAgent(text);
+      } catch (e) {
+        document.getElementById('pendingVoice').outerHTML = `<div class="msg user">🎤 Ошибка распознавания: ${escapeHtml(e.message || '')}</div>`;
+      }
+    }
+  });
 
   document.getElementById('newGoal').onclick = async () => {
     await Api.post('/agent/new-goal', {});
@@ -638,14 +657,11 @@ async function viewChats() {
     <p class="screen-sub">События и сообщения идут вместе, одной лентой.</p>
     <div class="chat-log" id="log"></div>
     <div class="chat-input">
-      <textarea id="text" placeholder="Написать в чат…"></textarea>
       <input type="file" accept="image/*" id="photoFile" style="display:none;">
       <button class="btn icon" id="photoBtn" aria-label="Прикрепить фото"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="M21 15l-5-5-4 4-3-3-4 4"/></svg></button>
-      <button class="btn icon mic" id="mic" aria-label="Голосовой ввод"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MIC_ICON}</svg></button>
-      <button class="btn icon" id="send" aria-label="Отправить"><svg viewBox="0 0 24 24" fill="currentColor">${SEND_ICON}</svg></button>
+      <textarea id="text" placeholder="Написать в чат…"></textarea>
+      <button class="btn icon mic" id="micSend" aria-label="Голос или отправить"></button>
     </div>`;
-
-  attachVoiceInput(document.getElementById('mic'), document.getElementById('text'));
 
   let messages = [];
   let events = [];
@@ -685,15 +701,23 @@ async function viewChats() {
         renderLog();
       };
     });
+    document.querySelectorAll('.delete-event').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm('Удалить это событие? Отменить будет нельзя.')) return;
+        await Api.post(`/chats/events/${btn.dataset.event}/cancel`, {});
+        events = events.filter(e => String(e.id) !== String(btn.dataset.event));
+        renderLog();
+      };
+    });
   }
 
   function openMessageActions(msg) {
-    const isImage = msg.content.startsWith('IMG::');
+    const isMedia = msg.content.startsWith('IMG::') || msg.content.startsWith('AUD::');
     showModal(`
-      ${!isImage ? '<button class="btn block" id="editMsg" style="margin-bottom:10px;">Изменить</button>' : ''}
+      ${!isMedia ? '<button class="btn block" id="editMsg" style="margin-bottom:10px;">Изменить</button>' : ''}
       <button class="btn ghost block" id="deleteMsg" style="color:var(--brick);border-color:var(--brick);">Удалить у всех</button>
     `);
-    if (!isImage) {
+    if (!isMedia) {
       document.getElementById('editMsg').onclick = () => {
         closeModal();
         showModal(`
@@ -741,12 +765,19 @@ async function viewChats() {
     e.target.value = '';
   };
 
-  document.getElementById('send').onclick = () => {
-    const ta = document.getElementById('text');
-    if (!ta.value.trim()) return;
-    ws.send(JSON.stringify({ type: 'message', content: ta.value.trim() }));
-    ta.value = '';
-  };
+  setupComposer({
+    textarea: document.getElementById('text'),
+    micSendBtn: document.getElementById('micSend'),
+    onSend: (content) => {
+      ws.send(JSON.stringify({ type: 'message', content }));
+    },
+    onVoice: async (blob) => {
+      // В общем чате голосовое отправляется как есть — остальные могут его прослушать,
+      // текст никуда не транскрибируется (в отличие от чата с агентом).
+      const dataUrl = await blobToDataUrl(blob);
+      ws.send(JSON.stringify({ type: 'message', content: 'AUD::' + dataUrl }));
+    }
+  });
 
   const data = await Api.get('/chats/city');
   messages = data.messages;
@@ -792,6 +823,9 @@ function renderEventCard(ev) {
         <div class="event-when">${when} (${WEEKDAYS_RU[d.getDay()]})</div>
         ${ev.creatorName ? `<div class="event-organizer">Организатор: ${escapeHtml(ev.creatorName)}</div>` : ''}
       </div>
+      ${ev.isMine ? `<button class="icon-btn delete-event" data-event="${ev.id}" title="Удалить событие">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>
+      </button>` : ''}
     </div>
     <div class="rsvp-row">
       <button class="rsvp-btn going ${ev.myResponse === 'going' ? 'active' : ''}" data-response="going">Буду (${ev.going.length})</button>
@@ -831,9 +865,15 @@ function renderCityMsg(m) {
   const who = m.name || m.username || 'Аноним';
   const own = Api.getUserId() && String(m.user_id) === String(Api.getUserId());
   const isImage = m.content.startsWith('IMG::');
-  const body = isImage
-    ? `<img class="chat-photo" src="${m.content.slice(5)}" alt="фото">`
-    : `<div class="city-bubble">${highlightMentions(escapeHtml(m.content))}</div>`;
+  const isAudio = m.content.startsWith('AUD::');
+  let body;
+  if (isImage) {
+    body = `<img class="chat-photo" src="${m.content.slice(5)}" alt="фото">`;
+  } else if (isAudio) {
+    body = `<audio class="chat-audio" controls preload="metadata" src="${m.content.slice(5)}"></audio>`;
+  } else {
+    body = `<div class="city-bubble">${highlightMentions(escapeHtml(m.content))}</div>`;
+  }
   return `
     <div class="city-row ${own ? 'own' : ''}" data-msg-id="${m.id}">
       ${avatarHtml(m.name, m.username, m.photo_url)}
@@ -863,7 +903,7 @@ async function viewProfile() {
       </label>
       <div>
         <h1 class="display screen-title" style="margin-bottom:2px;">${escapeHtml(p.name || p.username)}</h1>
-        <p class="screen-sub" style="margin-bottom:0;">${escapeHtml(p.city || 'Город не указан')} ${p.profession ? '· ' + escapeHtml(p.profession) : ''}</p>
+        <p class="screen-sub" style="margin-bottom:0;">${p.profession ? escapeHtml(p.profession) : '@' + escapeHtml(p.username)}</p>
       </div>
     </div>
 

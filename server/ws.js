@@ -45,41 +45,62 @@ function attachWebSocket(server) {
     ws.on('message', async (raw) => {
       let data;
       try { data = JSON.parse(raw); } catch { return; }
-      if (data.type !== 'message' || !data.content?.trim()) return;
-
       const [kind, id] = room.split(':');
-      let saved;
-      if (kind === 'city') {
-        const r = await db.query(
-          'INSERT INTO chat_messages (chat_id, user_id, content) VALUES ($1,$2,$3) RETURNING id, content, created_at',
-          [id, userId, data.content]
+
+      if (data.type === 'message' && data.content?.trim()) {
+        let saved;
+        if (kind === 'city') {
+          const r = await db.query(
+            'INSERT INTO chat_messages (chat_id, user_id, content) VALUES ($1,$2,$3) RETURNING id, content, created_at',
+            [id, userId, data.content]
+          );
+          saved = r.rows[0];
+        } else if (kind === 'dm') {
+          const r = await db.query(
+            'INSERT INTO direct_messages (direct_chat_id, sender_id, content) VALUES ($1,$2,$3) RETURNING id, content, created_at',
+            [id, userId, data.content]
+          );
+          saved = r.rows[0];
+        } else {
+          return;
+        }
+        const author = await db.query(
+          `SELECT u.username, p.name, p.photo_url FROM users u LEFT JOIN profiles p ON p.user_id=u.id WHERE u.id=$1`,
+          [userId]
         );
-        saved = r.rows[0];
-      } else if (kind === 'dm') {
-        const r = await db.query(
-          'INSERT INTO direct_messages (direct_chat_id, sender_id, content) VALUES ($1,$2,$3) RETURNING id, content, created_at',
-          [id, userId, data.content]
-        );
-        saved = r.rows[0];
-      } else {
+        broadcast(room, {
+          type: 'message',
+          id: saved.id,
+          content: saved.content,
+          created_at: saved.created_at,
+          user_id: userId,
+          username: author.rows[0]?.username,
+          name: author.rows[0]?.name,
+          photo_url: author.rows[0]?.photo_url
+        });
         return;
       }
 
-      const author = await db.query(
-        `SELECT u.username, p.name, p.photo_url FROM users u LEFT JOIN profiles p ON p.user_id=u.id WHERE u.id=$1`,
-        [userId]
-      );
+      // Редактирование и удаление сейчас поддержаны только в общем чате
+      if (kind !== 'city') return;
 
-      broadcast(room, {
-        type: 'message',
-        id: saved.id,
-        content: saved.content,
-        created_at: saved.created_at,
-        user_id: userId,
-        username: author.rows[0]?.username,
-        name: author.rows[0]?.name,
-        photo_url: author.rows[0]?.photo_url
-      });
+      if (data.type === 'edit' && data.id && typeof data.content === 'string' && data.content.trim()) {
+        const r = await db.query(
+          'UPDATE chat_messages SET content=$1 WHERE id=$2 AND user_id=$3 AND chat_id=$4 RETURNING id, content',
+          [data.content, data.id, userId, id]
+        );
+        if (r.rows.length) broadcast(room, { type: 'edit', id: r.rows[0].id, content: r.rows[0].content });
+        return;
+      }
+
+      if (data.type === 'delete' && data.id) {
+        const r = await db.query(
+          'DELETE FROM chat_messages WHERE id=$1 AND user_id=$2 AND chat_id=$3 RETURNING id',
+          [data.id, userId, id]
+        );
+        if (r.rows.length) broadcast(room, { type: 'delete', id: r.rows[0].id });
+        return;
+      }
     });
 
     ws.on('close', () => leaveRoom(room, ws));

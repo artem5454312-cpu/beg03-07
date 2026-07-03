@@ -199,8 +199,9 @@ function viewOnboarding() {
 
 /* ---------------- AGENT ---------------- */
 
-// Голосовой ввод через встроенный в браузер Web Speech API — работает без сервера
-// и без сторонних ключей. На iOS Safari поддержка может быть ограничена/нестабильна.
+// Голосовой ввод через встроенный в браузер Web Speech API — используется только
+// в общем чате. На iOS Safari поддержка ограничена/нестабильна — в чате с агентом
+// вместо этого используется запись звука + распознавание через Whisper (см. ниже).
 function attachVoiceInput(micBtn, textarea) {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!Recognition) { micBtn.style.display = 'none'; return; }
@@ -225,6 +226,61 @@ function attachVoiceInput(micBtn, textarea) {
   };
 }
 
+// Голосовой ввод для чата с агентом: записываем звук через микрофон и отправляем
+// на сервер, где его распознаёт Whisper. Надёжнее браузерного распознавания на iOS.
+function attachWhisperVoiceInput(micBtn, textarea) {
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    micBtn.style.display = 'none';
+    return;
+  }
+  let mediaRecorder = null;
+  let chunks = [];
+  let recording = false;
+
+  micBtn.onclick = async () => {
+    if (recording) { mediaRecorder.stop(); return; }
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      showToast('Нет доступа к микрофону');
+      return;
+    }
+
+    chunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    mediaRecorder.onstop = async () => {
+      recording = false;
+      micBtn.classList.remove('recording');
+      stream.getTracks().forEach(t => t.stop());
+
+      const blob = new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+      const dataUrl = await new Promise((resolve) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.readAsDataURL(blob);
+      });
+
+      micBtn.disabled = true;
+      showToast('Распознаю речь…');
+      try {
+        const res = await Api.post('/agent/transcribe', { audio: dataUrl });
+        if (res.text) textarea.value = (textarea.value ? textarea.value + ' ' : '') + res.text;
+        else showToast('Не удалось разобрать речь');
+      } catch (e) {
+        showToast(e.message || 'Не удалось распознать речь');
+      }
+      micBtn.disabled = false;
+    };
+
+    mediaRecorder.start();
+    recording = true;
+    micBtn.classList.add('recording');
+  };
+}
+
 const MIC_ICON = '<path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z"/><path d="M19 11a7 7 0 01-14 0M12 19v3"/>';
 
 async function viewAgent() {
@@ -242,7 +298,7 @@ async function viewAgent() {
       <button class="btn icon" id="send" aria-label="Отправить"><svg viewBox="0 0 24 24" fill="currentColor">${SEND_ICON}</svg></button>
     </div>`;
 
-  attachVoiceInput(document.getElementById('mic'), document.getElementById('text'));
+  attachWhisperVoiceInput(document.getElementById('mic'), document.getElementById('text'));
 
   function scrollLogToBottom() {
     document.getElementById('main').scrollTop = document.getElementById('main').scrollHeight;
@@ -291,6 +347,7 @@ async function viewAgent() {
 
 function statusLabel(s) { return { planned: 'В процессе', done: 'Выполнено', skipped: 'Пропущено', cancelled: 'Отменено' }[s] || s; }
 function nextStatus(s) { return s === 'planned' ? 'done' : s === 'done' ? 'skipped' : 'planned'; }
+function difficultyLabel(d) { return { easy: 'Лёгкая', medium: 'Средняя', hard: 'Нужно постараться' }[d] || 'Средняя'; }
 
 const MONTHS_RU = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
 const WEEKDAYS_RU = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
@@ -335,26 +392,38 @@ async function viewPlan() {
     const allWorkouts = goals.flatMap(g => g.workouts);
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const todayIso = today.toISOString().slice(0, 10);
-    const dow = (today.getDay() + 6) % 7; // 0 = понедельник
-    const monday = new Date(today); monday.setDate(today.getDate() - dow);
-    const short = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+    const short = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
 
-    const days = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(monday); d.setDate(monday.getDate() + i);
+    // Три недели назад — три недели вперёд, прокручивается пальцем влево/вправо
+    const start = new Date(today); start.setDate(today.getDate() - 21);
+    const days = Array.from({ length: 43 }, (_, i) => {
+      const d = new Date(start); d.setDate(start.getDate() + i);
       return d;
     });
 
-    document.getElementById('weekStrip').innerHTML = `<div class="week-strip">${days.map((d, i) => {
+    document.getElementById('weekStrip').innerHTML = `<div class="week-strip" id="weekStripInner">${days.map((d) => {
       const iso = d.toISOString().slice(0, 10);
       const match = allWorkouts.find(w => w.date.slice(0, 10) === iso);
       const dotClass = !match ? 'empty' : match.status === 'done' ? 'done' : match.status === 'skipped' ? 'skipped' : 'planned';
       return `
-        <div class="week-day ${iso === todayIso ? 'today' : ''}" title="${match ? escapeHtml(match.type) : 'Нет тренировки'}">
-          <div class="wd-label">${short[i]}</div>
+        <div class="week-day ${iso === todayIso ? 'today' : ''} ${match ? 'has-workout' : ''}" data-date="${iso}" data-workout="${match ? match.id : ''}">
+          <div class="wd-label">${short[d.getDay()]}</div>
           <div class="wd-num">${d.getDate()}</div>
           <div class="wd-dot ${dotClass}"></div>
         </div>`;
     }).join('')}</div>`;
+
+    const strip = document.getElementById('weekStripInner');
+    const todayCell = strip.querySelector('.week-day.today');
+    if (todayCell) {
+      strip.parentElement.scrollLeft = todayCell.offsetLeft - strip.parentElement.clientWidth / 2 + todayCell.offsetWidth / 2;
+    }
+    strip.querySelectorAll('.week-day.has-workout').forEach(cell => {
+      cell.onclick = () => openWorkoutDetail(cell.dataset.workout);
+    });
+    strip.querySelectorAll('.week-day:not(.has-workout)').forEach(cell => {
+      cell.onclick = () => showToast('В этот день тренировки нет');
+    });
   }
 
   async function load() {
@@ -397,6 +466,7 @@ async function viewPlan() {
             <div>
               <div class="lap-title">${escapeHtml(w.type)}</div>
               <div class="lap-meta">${w.source === 'agent' ? 'агент' : 'вручную'}</div>
+              <span class="diff-badge ${w.difficulty || 'medium'}">${difficultyLabel(w.difficulty)}</span>
             </div>
             <div class="lap-right">
               <div class="lap-date">${dh.date}</div>
@@ -446,9 +516,10 @@ async function viewPlan() {
     showModal(`
       <div class="eyebrow" style="margin-bottom:6px;">${escapeHtml(goalTitle || 'План')}</div>
       <h2>${escapeHtml(workout.type)}</h2>
-      <p class="screen-sub" style="margin:4px 0 16px;">${workout.date.slice(0,10)} · ${statusLabel(workout.status)}</p>
-      ${workout.notes ? `<div class="card" style="box-shadow:none;"><div class="eyebrow" style="margin-bottom:6px;">Заметка</div><p>${escapeHtml(workout.notes)}</p></div>` : ''}
-      <button class="btn accent-lg" id="startWorkout" style="margin-top:6px;">Начать тренировку</button>
+      <p class="screen-sub" style="margin:4px 0 8px;">${workout.date.slice(0,10)} · ${statusLabel(workout.status)}</p>
+      <span class="diff-badge ${workout.difficulty || 'medium'}" style="margin-bottom:14px;">${difficultyLabel(workout.difficulty)}</span>
+      ${workout.notes ? `<div class="card" style="box-shadow:none;margin-top:10px;"><div class="eyebrow" style="margin-bottom:6px;">Заметка</div><p>${escapeHtml(workout.notes)}</p></div>` : ''}
+      <button class="btn accent-lg" id="startWorkout" style="margin-top:14px;">Начать тренировку</button>
       <button class="btn ghost block" id="deleteWorkout" style="margin-top:10px;color:var(--brick);border-color:var(--brick);">Удалить эту тренировку</button>
     `);
     document.getElementById('startWorkout').onclick = () => openWorkoutTimer(workout);
@@ -460,19 +531,20 @@ async function viewPlan() {
     };
   }
 
+  const TIME_OPTIONS = [1,2,3,5,10,15,20,25,30,35,40,45,50,60,70,80,90,105,120];
+
   function openWorkoutTimer(workout) {
-    let totalSeconds = guessMinutes(workout.type) * 60;
-    let remaining = totalSeconds;
+    let remaining = guessMinutes(workout.type) * 60;
     let running = false;
 
     const overlay = showModal(`
       <div class="eyebrow" style="text-align:center;">Сейчас</div>
       <p class="timer-now">${escapeHtml(workout.type)}</p>
       <div class="timer-display" id="timerNum">${fmtTime(remaining)}</div>
-      <div class="timer-adjust">
-        <button id="minus">−1 мин</button>
-        <button id="plus">+1 мин</button>
+      <div class="time-picker" id="tp">
+        <div class="tp-track">${TIME_OPTIONS.map(m => `<div class="tp-item" data-min="${m}">${m}</div>`).join('')}</div>
       </div>
+      <p class="screen-sub" style="text-align:center;margin:0 0 10px;">мин — прокрути, чтобы выбрать длительность</p>
       <div class="timer-controls">
         <button class="btn" id="toggle">Старт</button>
         <button class="btn ghost" id="finish">Завершить</button>
@@ -481,16 +553,41 @@ async function viewPlan() {
 
     function render() { overlay.querySelector('#timerNum').textContent = fmtTime(remaining); }
 
-    overlay.querySelector('#minus').onclick = () => { remaining = Math.max(0, remaining - 60); render(); };
-    overlay.querySelector('#plus').onclick = () => { remaining += 60; render(); };
+    // Прокручиваемый пикер минут вместо кнопок +1/-1
+    const tp = overlay.querySelector('#tp');
+    const items = [...overlay.querySelectorAll('.tp-item')];
+    function syncPickerActive() {
+      const center = tp.scrollLeft + tp.clientWidth / 2;
+      let closest = items[0], dist = Infinity;
+      for (const it of items) {
+        const d = Math.abs((it.offsetLeft + it.offsetWidth / 2) - center);
+        if (d < dist) { dist = d; closest = it; }
+      }
+      items.forEach(i => i.classList.toggle('active', i === closest));
+      if (!running) { remaining = parseInt(closest.dataset.min, 10) * 60; render(); }
+    }
+    let scrollTimer;
+    tp.addEventListener('scroll', () => {
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(syncPickerActive, 90);
+    });
+    requestAnimationFrame(() => {
+      const startMin = Math.round(remaining / 60);
+      const closestOpt = TIME_OPTIONS.reduce((a, b) => Math.abs(b - startMin) < Math.abs(a - startMin) ? b : a);
+      const idx = TIME_OPTIONS.indexOf(closestOpt);
+      const target = items[idx];
+      tp.scrollLeft = target.offsetLeft + target.offsetWidth / 2 - tp.clientWidth / 2;
+      syncPickerActive();
+    });
 
     const toggleBtn = overlay.querySelector('#toggle');
     toggleBtn.onclick = () => {
       running = !running;
       toggleBtn.textContent = running ? 'Пауза' : 'Продолжить';
+      tp.classList.toggle('disabled', running);
       if (running) {
         window.__timerInterval = setInterval(() => {
-          if (remaining <= 0) { clearInterval(window.__timerInterval); running = false; toggleBtn.textContent = 'Старт'; showToast('Время вышло!'); return; }
+          if (remaining <= 0) { clearInterval(window.__timerInterval); running = false; toggleBtn.textContent = 'Старт'; tp.classList.remove('disabled'); showToast('Время вышло!'); return; }
           remaining -= 1;
           render();
         }, 1000);
@@ -538,7 +635,7 @@ async function viewChats() {
       <h1 class="display screen-title">Общий чат</h1>
       <button class="btn" id="addEvent">+ Событие</button>
     </div>
-    <div id="events"></div>
+    <p class="screen-sub">События и сообщения идут вместе, одной лентой.</p>
     <div class="chat-log" id="log"></div>
     <div class="chat-input">
       <textarea id="text" placeholder="Написать в чат…"></textarea>
@@ -550,41 +647,74 @@ async function viewChats() {
 
   attachVoiceInput(document.getElementById('mic'), document.getElementById('text'));
 
-  async function loadEvents() {
-    const events = await Api.get('/chats/city/events');
-    const box = document.getElementById('events');
-    if (!events.length) { box.innerHTML = ''; return; }
-    box.innerHTML = events.map(ev => {
-      const total = ev.going.length + ev.notGoing.length;
-      const pct = total ? Math.round((ev.going.length / total) * 100) : 0;
-      const d = new Date(ev.event_date);
-      const when = `${d.getDate()} ${MONTHS_RU[d.getMonth()]} · ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-      return `
-      <div class="card event-card" data-event="${ev.id}">
-        <div class="event-head">
-          <div>
-            <div class="event-title">${escapeHtml(ev.title)}</div>
-            <div class="event-when">${when} (${WEEKDAYS_RU[d.getDay()]})</div>
-          </div>
-        </div>
-        <div class="rsvp-row">
-          <button class="rsvp-btn going ${ev.myResponse === 'going' ? 'active' : ''}" data-response="going">Буду (${ev.going.length})</button>
-          <button class="rsvp-btn not-going ${ev.myResponse === 'not_going' ? 'active' : ''}" data-response="not_going">Не буду (${ev.notGoing.length})</button>
-        </div>
-        ${total ? `<div class="rsvp-bar"><div class="rsvp-bar-fill" style="width:${pct}%;"></div></div>
-        <div class="rsvp-names">${pct}% идут ${ev.going.length ? '· <b>Идут:</b> ' + ev.going.map(escapeHtml).join(', ') : ''}${ev.notGoing.length ? ' · <b>Не идут:</b> ' + ev.notGoing.map(escapeHtml).join(', ') : ''}</div>` : ''}
-      </div>`;
-    }).join('');
+  let messages = [];
+  let events = [];
 
-    box.querySelectorAll('.rsvp-btn').forEach(btn => {
+  function timeline() {
+    const items = [
+      ...messages.map(m => ({ ts: new Date(m.created_at).getTime(), html: renderCityMsg(m) })),
+      ...events.map(e => ({ ts: new Date(e.created_at || e.event_date).getTime(), html: renderEventCard(e) }))
+    ];
+    items.sort((a, b) => a.ts - b.ts);
+    return items.map(i => i.html).join('');
+  }
+
+  function renderLog() {
+    const log = document.getElementById('log');
+    log.innerHTML = timeline();
+    wireLogInteractions();
+    main.scrollTop = main.scrollHeight;
+  }
+
+  function wireLogInteractions() {
+    document.querySelectorAll('.chat-photo').forEach(img => {
+      img.onclick = () => openPhotoViewer(img.src);
+    });
+    document.querySelectorAll('.msg-more').forEach(btn => {
+      btn.onclick = () => {
+        const msgId = btn.closest('[data-msg-id]').dataset.msgId;
+        const msg = messages.find(m => String(m.id) === String(msgId));
+        if (msg) openMessageActions(msg);
+      };
+    });
+    document.querySelectorAll('.rsvp-btn').forEach(btn => {
       btn.onclick = async () => {
         const card = btn.closest('.event-card');
         await Api.post(`/chats/events/${card.dataset.event}/join`, { response: btn.dataset.response });
-        loadEvents();
+        events = await Api.get('/chats/city/events');
+        renderLog();
       };
     });
   }
-  await loadEvents();
+
+  function openMessageActions(msg) {
+    const isImage = msg.content.startsWith('IMG::');
+    showModal(`
+      ${!isImage ? '<button class="btn block" id="editMsg" style="margin-bottom:10px;">Изменить</button>' : ''}
+      <button class="btn ghost block" id="deleteMsg" style="color:var(--brick);border-color:var(--brick);">Удалить у всех</button>
+    `);
+    if (!isImage) {
+      document.getElementById('editMsg').onclick = () => {
+        closeModal();
+        showModal(`
+          <h2 style="margin-bottom:10px;">Изменить сообщение</h2>
+          <textarea id="editText" style="width:100%;min-height:90px;border:1px solid var(--line-on-paper);border-radius:12px;padding:10px;">${escapeHtml(msg.content)}</textarea>
+          <button class="btn block" id="saveEdit" style="margin-top:12px;">Сохранить</button>
+        `);
+        document.getElementById('saveEdit').onclick = () => {
+          const val = document.getElementById('editText').value.trim();
+          if (val) ws.send(JSON.stringify({ type: 'edit', id: msg.id, content: val }));
+          closeModal();
+        };
+      };
+    }
+    document.getElementById('deleteMsg').onclick = () => {
+      closeModal();
+      if (confirm('Удалить сообщение у всех? Отменить будет нельзя.')) {
+        ws.send(JSON.stringify({ type: 'delete', id: msg.id }));
+      }
+    };
+  }
 
   document.getElementById('addEvent').onclick = async () => {
     const title = prompt('Название события (например: Совместная пробежка)');
@@ -595,22 +725,9 @@ async function viewChats() {
     try {
       await Api.post('/chats/city/events', { title, event_date: iso });
       showToast('Событие создано');
-      loadEvents();
+      events = await Api.get('/chats/city/events');
+      renderLog();
     } catch (e) { showToast(e.message); }
-  };
-
-  const data = await Api.get('/chats/city');
-  const log = document.getElementById('log');
-  log.innerHTML = data.messages.map(renderCityMsg).join('');
-  main.scrollTop = main.scrollHeight;
-
-  const token = Api.getToken();
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws?token=${token}&room=city:${data.chat.id}`);
-  ws.onmessage = (ev) => {
-    const msg = JSON.parse(ev.data);
-    log.innerHTML += renderCityMsg(msg);
-    main.scrollTop = main.scrollHeight;
   };
 
   document.getElementById('photoBtn').onclick = () => document.getElementById('photoFile').click();
@@ -630,6 +747,59 @@ async function viewChats() {
     ws.send(JSON.stringify({ type: 'message', content: ta.value.trim() }));
     ta.value = '';
   };
+
+  const data = await Api.get('/chats/city');
+  messages = data.messages;
+  events = await Api.get('/chats/city/events');
+  renderLog();
+
+  const token = Api.getToken();
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws?token=${token}&room=city:${data.chat.id}`);
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'message') {
+      messages.push(msg);
+      renderLog();
+    } else if (msg.type === 'edit') {
+      const m = messages.find(x => String(x.id) === String(msg.id));
+      if (m) { m.content = msg.content; renderLog(); }
+    } else if (msg.type === 'delete') {
+      messages = messages.filter(x => String(x.id) !== String(msg.id));
+      renderLog();
+    }
+  };
+}
+
+function openPhotoViewer(url) {
+  const ov = document.createElement('div');
+  ov.className = 'photo-viewer';
+  ov.innerHTML = `<img src="${url}" alt="фото">`;
+  ov.onclick = () => ov.remove();
+  document.body.appendChild(ov);
+}
+
+function renderEventCard(ev) {
+  const total = ev.going.length + ev.notGoing.length;
+  const pct = total ? Math.round((ev.going.length / total) * 100) : 0;
+  const d = new Date(ev.event_date);
+  const when = `${d.getDate()} ${MONTHS_RU[d.getMonth()]} · ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  return `
+  <div class="card event-card" data-event="${ev.id}">
+    <div class="event-head">
+      <div>
+        <div class="event-title">${escapeHtml(ev.title)}</div>
+        <div class="event-when">${when} (${WEEKDAYS_RU[d.getDay()]})</div>
+        ${ev.creatorName ? `<div class="event-organizer">Организатор: ${escapeHtml(ev.creatorName)}</div>` : ''}
+      </div>
+    </div>
+    <div class="rsvp-row">
+      <button class="rsvp-btn going ${ev.myResponse === 'going' ? 'active' : ''}" data-response="going">Буду (${ev.going.length})</button>
+      <button class="rsvp-btn not-going ${ev.myResponse === 'not_going' ? 'active' : ''}" data-response="not_going">Не буду (${ev.notGoing.length})</button>
+    </div>
+    ${total ? `<div class="rsvp-bar"><div class="rsvp-bar-fill" style="width:${pct}%;"></div></div>
+    <div class="rsvp-names">${pct}% идут ${ev.going.length ? '· <b>Идут:</b> ' + ev.going.map(escapeHtml).join(', ') : ''}${ev.notGoing.length ? ' · <b>Не идут:</b> ' + ev.notGoing.map(escapeHtml).join(', ') : ''}</div>` : ''}
+  </div>`;
 }
 
 // Сжимает фото для чата, сохраняя пропорции (в отличие от квадратного аватара)
@@ -663,14 +833,17 @@ function renderCityMsg(m) {
   const isImage = m.content.startsWith('IMG::');
   const body = isImage
     ? `<img class="chat-photo" src="${m.content.slice(5)}" alt="фото">`
-    : highlightMentions(escapeHtml(m.content));
+    : `<div class="city-bubble">${highlightMentions(escapeHtml(m.content))}</div>`;
   return `
-    <div class="city-row ${own ? 'own' : ''}">
+    <div class="city-row ${own ? 'own' : ''}" data-msg-id="${m.id}">
       ${avatarHtml(m.name, m.username, m.photo_url)}
       <div class="city-bubble-wrap">
         ${!own ? `<div class="city-who">${escapeHtml(who)}</div>` : ''}
-        <div class="city-bubble">${body}</div>
-        <div class="city-username">@${escapeHtml(m.username || 'user')}</div>
+        ${body}
+        <div class="city-meta-row">
+          <span class="city-username">@${escapeHtml(m.username || 'user')}</span>
+          ${own ? '<button class="msg-more" aria-label="Действия">⋯</button>' : ''}
+        </div>
       </div>
     </div>`;
 }

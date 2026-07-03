@@ -55,4 +55,43 @@ router.post('/new-goal', async (req, res) => {
   res.json(saved.rows[0]);
 });
 
+// Голосовой ввод для чата с агентом: браузер записывает звук, а распознаёт его
+// OpenAI Whisper (нужен отдельный ключ OPENAI_API_KEY в .env — см. .env.example).
+router.post('/transcribe', async (req, res) => {
+  const { audio } = req.body;
+  if (!audio) return res.status(400).json({ error: 'Нет аудио.' });
+  if (!process.env.OPENAI_API_KEY) {
+    return res.status(500).json({ error: 'Голосовой ввод не настроен: нет переменной OPENAI_API_KEY.' });
+  }
+
+  const match = audio.match(/^data:(audio\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!match) return res.status(400).json({ error: 'Некорректный формат аудио.' });
+  const mime = match[1];
+  const buffer = Buffer.from(match[2], 'base64');
+  const ext = mime.includes('webm') ? 'webm' : mime.includes('mp4') ? 'mp4' : mime.includes('ogg') ? 'ogg' : 'wav';
+
+  try {
+    const form = new FormData();
+    form.append('file', new Blob([buffer], { type: mime }), `audio.${ext}`);
+    form.append('model', 'whisper-1');
+    form.append('language', 'ru');
+
+    const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: form
+    });
+
+    if (!resp.ok) {
+      console.error('Whisper error:', await resp.text());
+      return res.status(502).json({ error: 'Не удалось распознать речь.' });
+    }
+    const data = await resp.json();
+    res.json({ text: data.text || '' });
+  } catch (e) {
+    console.error('Ошибка распознавания речи:', e);
+    res.status(500).json({ error: 'Ошибка распознавания речи.' });
+  }
+});
+
 module.exports = router;

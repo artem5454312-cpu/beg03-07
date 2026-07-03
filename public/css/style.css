@@ -55,22 +55,22 @@ button:focus-visible, a:focus-visible{ outline:2px solid var(--cobalt); outline-
   position:fixed; left:50%; bottom: calc(14px + env(safe-area-inset-bottom));
   transform:translateX(-50%);
   display:flex; gap:8px;
-  background:var(--ink); padding:5px 8px;
+  background:var(--ink); padding:6px 8px;
   border-radius:999px;
   box-shadow:0 12px 30px rgba(0,0,0,0.28);
   z-index:30;
 }
 .tabbar button{
-  width:64px; height:34px; border-radius:17px;
+  width:64px; height:39px; border-radius:19px;
   display:flex; align-items:center; justify-content:center;
   background:transparent; border:none; cursor:pointer;
   color:rgba(255,255,255,0.62);
   transition: background .15s ease, color .15s ease;
 }
-.tabbar button svg{ width:20px; height:20px; }
+.tabbar button svg{ width:21px; height:21px; }
 .tabbar button.active{ background:#fff; color:var(--ink); }
 
-main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-width:720px; width:100%; margin:0 auto; padding:22px 16px 160px; }
+main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-width:720px; width:100%; margin:0 auto; padding:22px 16px 165px; }
 
 .card{
   background:var(--paper-2); border:1px solid var(--line-on-paper); border-radius:18px;
@@ -127,7 +127,7 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 .chat-input{
   display:flex; gap:8px;
   position:fixed; left:50%; transform:translateX(-50%);
-  bottom: calc(76px + env(safe-area-inset-bottom));
+  bottom: calc(80px + env(safe-area-inset-bottom));
   width:100%; max-width:720px; box-sizing:border-box; padding:0 16px;
   z-index:25;
 }
@@ -154,9 +154,11 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 .summary-box strong{ color:var(--text-on-paper); }
 .summary-label{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-on-paper-dim); margin-bottom:4px; }
 
-/* Недельная полоска-календарь сверху экрана "План" */
-.week-strip{ display:flex; gap:6px; margin-bottom:20px; }
-.week-day{ flex:1; display:flex; flex-direction:column; align-items:center; gap:5px; padding:10px 2px; border-radius:14px; background:var(--paper-2); border:1px solid var(--line-on-paper); }
+/* Недельная полоска-календарь сверху экрана "План" — теперь прокручивается пальцем */
+#weekStrip{ overflow-x:auto; -webkit-overflow-scrolling:touch; margin:0 -16px 20px; padding:0 16px; scrollbar-width:none; }
+#weekStrip::-webkit-scrollbar{ display:none; }
+.week-strip{ display:flex; gap:6px; width:max-content; }
+.week-day{ width:44px; flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:5px; padding:10px 2px; border-radius:14px; background:var(--paper-2); border:1px solid var(--line-on-paper); cursor:pointer; }
 .week-day.today{ background:linear-gradient(160deg, var(--cobalt), var(--cobalt-dim)); border-color:transparent; }
 .week-day.today .wd-label, .week-day.today .wd-num{ color:#fff; }
 .wd-label{ font-size:10px; font-weight:600; color:var(--text-on-paper-dim); text-transform:uppercase; }
@@ -166,6 +168,12 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 .wd-dot.done{ background:#34c759; }
 .wd-dot.skipped{ background:var(--brick); }
 .week-day.today .wd-dot.planned{ background:#fff; }
+
+/* Бейдж сложности тренировки */
+.diff-badge{ display:inline-block; font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:980px; margin-top:5px; }
+.diff-badge.easy{ background:rgba(52,199,89,0.14); color:#248a3d; }
+.diff-badge.medium{ background:rgba(0,113,227,0.12); color:var(--cobalt); }
+.diff-badge.hard{ background:rgba(255,59,48,0.12); color:var(--brick); }
 .icon-btn{
   background:none; border:none; cursor:pointer; color:var(--text-on-paper-dim);
   width:32px; height:32px; border-radius:10px; flex:0 0 auto;
@@ -196,6 +204,7 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 .event-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:10px; }
 .event-title{ font-weight:700; font-size:16px; }
 .event-when{ font-size:13px; color:var(--text-on-paper-dim); margin-top:2px; }
+.event-organizer{ font-size:12px; color:var(--text-on-paper-dim); margin-top:4px; }
 .rsvp-row{ display:flex; gap:8px; margin-bottom:12px; }
 .rsvp-btn{
   flex:1; padding:10px; border-radius:14px; border:1px solid var(--line-on-paper);
@@ -231,10 +240,14 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
   font-variant-numeric:tabular-nums;
 }
 .timer-now{ text-align:center; color:var(--text-on-paper-dim); font-size:14px; margin-bottom:8px; }
-.timer-controls{ display:flex; gap:10px; justify-content:center; margin:16px 0 6px; }
+.timer-controls{ display:flex; gap:10px; justify-content:center; margin:6px 0 6px; }
 .timer-controls button{ min-width:96px; }
-.timer-adjust{ display:flex; justify-content:center; gap:16px; margin-bottom:6px; }
-.timer-adjust button{ background:none; border:1px solid var(--line-on-paper); border-radius:980px; width:38px; height:38px; font-size:18px; font-weight:700; color:var(--text-on-paper); cursor:pointer; }
+.time-picker{ overflow-x:auto; -webkit-overflow-scrolling:touch; scroll-snap-type:x mandatory; padding:0 calc(50% - 26px); margin-bottom:4px; scrollbar-width:none; }
+.time-picker::-webkit-scrollbar{ display:none; }
+.time-picker.disabled{ pointer-events:none; opacity:.4; }
+.tp-track{ display:flex; gap:10px; }
+.tp-item{ scroll-snap-align:center; min-width:52px; text-align:center; font-size:20px; font-weight:700; color:var(--text-on-paper-dim); padding:8px 0; }
+.tp-item.active{ color:var(--cobalt); font-size:26px; }
 
 /* ---- City chat (bubbles + avatars) ---- */
 .city-row{ display:flex; gap:8px; align-items:flex-end; margin-bottom:12px; }
@@ -250,11 +263,17 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 .city-row.own .city-who{ text-align:right; }
 .city-bubble{ padding:10px 14px; border-radius:18px; font-size:14.5px; line-height:1.4; background:#e9e9eb; color:var(--text-on-paper); border-bottom-left-radius:6px; }
 .city-row.own .city-bubble{ background:var(--cobalt); color:#fff; border-bottom-right-radius:6px; border-bottom-left-radius:18px; }
-.city-username{ font-size:10.5px; color:var(--text-on-paper-dim); margin:3px 4px 0; }
-.city-row.own .city-username{ text-align:right; }
+.city-meta-row{ display:flex; align-items:center; gap:8px; margin-top:3px; }
+.city-row.own .city-meta-row{ justify-content:flex-end; }
+.city-username{ font-size:10.5px; color:var(--text-on-paper-dim); }
+.msg-more{ background:none; border:none; color:var(--text-on-paper-dim); font-size:15px; line-height:1; cursor:pointer; padding:2px 4px; }
 .mention{ color:var(--cobalt); font-weight:700; }
 .city-row.own .mention{ color:#dff0ff; }
-.chat-photo{ max-width:220px; border-radius:14px; display:block; margin-top:2px; }
+
+/* Фото в чате — маленький превью без рамки, как в Телеграме; тап открывает во весь экран */
+.chat-photo{ max-width:150px; max-height:190px; border-radius:12px; display:block; cursor:pointer; object-fit:cover; }
+.photo-viewer{ position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; }
+.photo-viewer img{ max-width:100%; max-height:100%; border-radius:12px; }
 
 /* ---- Profile avatar picker ---- */
 .avatar-picker{ display:flex; align-items:center; gap:16px; margin-bottom:22px; }

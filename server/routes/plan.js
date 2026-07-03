@@ -35,13 +35,13 @@ router.get('/workouts', async (req, res) => {
 
 // Ручное добавление тренировки (кнопка "+")
 router.post('/workouts', async (req, res) => {
-  const { date, type } = req.body;
+  const { date, type, difficulty } = req.body;
   if (!date || !type) return res.status(400).json({ error: 'Укажите дату и тип тренировки.' });
   const goalId = await getActiveGoalId(req.userId);
   const r = await db.query(
-    `INSERT INTO workouts (goal_id, user_id, date, type, status, source)
-     VALUES ($1,$2,$3,$4,'planned','manual') RETURNING *`,
-    [goalId, req.userId, date, type]
+    `INSERT INTO workouts (goal_id, user_id, date, type, status, source, difficulty)
+     VALUES ($1,$2,$3,$4,'planned','manual',$5) RETURNING *`,
+    [goalId, req.userId, date, type, ['easy','medium','hard'].includes(difficulty) ? difficulty : 'medium']
   );
   res.json(r.rows[0]);
 });
@@ -105,7 +105,7 @@ router.get('/overview', async (req, res) => {
   if (!goals.rows.length) return res.json([]);
 
   const workouts = await db.query(
-    `SELECT w.id, w.goal_id, w.date, w.type, w.status, w.source, wr.notes, wr.metrics
+    `SELECT w.id, w.goal_id, w.date, w.type, w.status, w.source, w.difficulty, wr.notes, wr.metrics
        FROM workouts w
        LEFT JOIN workout_results wr ON wr.workout_id = w.id
       WHERE w.user_id=$1

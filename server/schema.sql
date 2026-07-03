@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS workouts (
   source TEXT NOT NULL DEFAULT 'agent',   -- agent | manual
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE workouts ADD COLUMN IF NOT EXISTS difficulty TEXT NOT NULL DEFAULT 'medium'; -- easy | medium | hard
 
 CREATE TABLE IF NOT EXISTS workout_results (
   id SERIAL PRIMARY KEY,

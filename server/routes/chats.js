@@ -73,9 +73,13 @@ router.get('/city/events', async (req, res) => {
   const chat = await getOrCreateGlobalChat(req.userId);
 
   const events = await db.query(
-    `SELECT id, title, event_date, creator_id FROM events
-      WHERE chat_id=$1 AND cancelled=false
-      ORDER BY event_date ASC`,
+    `SELECT e.id, e.title, e.event_date, e.creator_id, e.created_at,
+            coalesce(p.name, u.username) AS creator_name
+       FROM events e
+       JOIN users u ON u.id = e.creator_id
+       LEFT JOIN profiles p ON p.user_id = u.id
+      WHERE e.chat_id=$1 AND e.cancelled=false
+      ORDER BY e.event_date ASC`,
     [chat.id]
   );
   if (!events.rows.length) return res.json([]);
@@ -102,7 +106,9 @@ router.get('/city/events', async (req, res) => {
       id: e.id,
       title: e.title,
       event_date: e.event_date,
+      created_at: e.created_at,
       isMine: e.creator_id === req.userId,
+      creatorName: e.creator_name,
       going: going.map(r => r.name),
       notGoing: notGoing.map(r => r.name),
       myResponse: mine ? mine.response : null

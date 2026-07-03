@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
-const { normalizeCity } = require('../utils/city');
+const { GLOBAL_CHAT_KEY } = require('../utils/city');
 
 const router = express.Router();
 
@@ -106,20 +106,17 @@ router.post('/profile-setup', requireAuth, async (req, res) => {
     [req.userId, name, photo_url || null, profession || null, gender || null, city || null]
   );
 
-  // Один городской чат на город — создаём, если ещё нет, и вступаем в него.
-  // Название города нормализуем (регистр/пробелы), чтобы "Алматы" и "алматы " не плодили разные чаты.
-  if (city) {
-    const cityKey = normalizeCity(city);
-    const chat = await db.query(
-      `INSERT INTO city_chats (city_name) VALUES ($1)
-       ON CONFLICT (city_name) DO UPDATE SET city_name=EXCLUDED.city_name RETURNING id`,
-      [cityKey]
-    );
-    await db.query(
-      'INSERT INTO city_chat_members (chat_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-      [chat.rows[0].id, req.userId]
-    );
-  }
+  // Один общий чат для всех пользователей — вступаем в него при заполнении профиля,
+  // независимо от города (город остаётся просто полем в профиле, на чат больше не влияет).
+  const globalChat = await db.query(
+    `INSERT INTO city_chats (city_name) VALUES ($1)
+     ON CONFLICT (city_name) DO UPDATE SET city_name=EXCLUDED.city_name RETURNING id`,
+    [GLOBAL_CHAT_KEY]
+  );
+  await db.query(
+    'INSERT INTO city_chat_members (chat_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+    [globalChat.rows[0].id, req.userId]
+  );
 
   res.json({ ok: true });
 });

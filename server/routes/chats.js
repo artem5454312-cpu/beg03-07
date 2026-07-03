@@ -1,28 +1,28 @@
 const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
-const { normalizeCity } = require('../utils/city');
+const { GLOBAL_CHAT_KEY } = require('../utils/city');
 
 const router = express.Router();
 router.use(requireAuth);
 
-// Городской чат текущего пользователя (по городу из профиля).
-// Если чата с таким (нормализованным) названием ещё нет — создаём и сразу подключаем.
-router.get('/city', async (req, res) => {
-  const profile = await db.query('SELECT city FROM profiles WHERE user_id=$1', [req.userId]);
-  const city = profile.rows[0]?.city;
-  if (!city) return res.json({ chat: null, messages: [] });
-
-  const cityKey = normalizeCity(city);
+// Достаёт (и при необходимости создаёт) единый общий чат, в котором состоят все пользователи.
+async function getOrCreateGlobalChat(userId) {
   const chat = await db.query(
     `INSERT INTO city_chats (city_name) VALUES ($1)
      ON CONFLICT (city_name) DO UPDATE SET city_name=EXCLUDED.city_name RETURNING id, city_name`,
-    [cityKey]
+    [GLOBAL_CHAT_KEY]
   );
   await db.query(
     'INSERT INTO city_chat_members (chat_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-    [chat.rows[0].id, req.userId]
+    [chat.rows[0].id, userId]
   );
+  return chat.rows[0];
+}
+
+// Общий чат для всех зарегистрированных пользователей (не по городам)
+router.get('/city', async (req, res) => {
+  const chat = await getOrCreateGlobalChat(req.userId);
 
   const messages = await db.query(
     `SELECT cm.id, cm.content, cm.created_at, cm.user_id, p.name, p.photo_url, u.username
@@ -30,26 +30,14 @@ router.get('/city', async (req, res) => {
        JOIN users u ON u.id = cm.user_id
        LEFT JOIN profiles p ON p.user_id = u.id
       WHERE cm.chat_id=$1 ORDER BY cm.created_at DESC LIMIT 50`,
-    [chat.rows[0].id]
+    [chat.id]
   );
-  res.json({ chat: chat.rows[0], messages: messages.rows.reverse() });
+  res.json({ chat, messages: messages.rows.reverse() });
 });
 
 router.post('/city/join', async (req, res) => {
-  const profile = await db.query('SELECT city FROM profiles WHERE user_id=$1', [req.userId]);
-  const city = profile.rows[0]?.city;
-  if (!city) return res.status(400).json({ error: 'Сначала укажите город в профиле.' });
-
-  const chat = await db.query(
-    `INSERT INTO city_chats (city_name) VALUES ($1)
-     ON CONFLICT (city_name) DO UPDATE SET city_name=EXCLUDED.city_name RETURNING id`,
-    [normalizeCity(city)]
-  );
-  await db.query(
-    'INSERT INTO city_chat_members (chat_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-    [chat.rows[0].id, req.userId]
-  );
-  res.json({ ok: true, chatId: chat.rows[0].id });
+  const chat = await getOrCreateGlobalChat(req.userId);
+  res.json({ ok: true, chatId: chat.id });
 });
 
 // Пожаловаться на сообщение (минимальная модерация на старте)
@@ -62,32 +50,85 @@ router.post('/city/report', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Событие внутри городского чата (создаётся из тренировки или с нуля)
+// Создать событие в общем чате (например "Совместная пробежка")
 router.post('/city/events', async (req, res) => {
-  const { chat_id, workout_id, title, event_date, max_participants } = req.body;
-  if (!chat_id || !title || !event_date) return res.status(400).json({ error: 'Укажите название, дату и чат.' });
+  const { workout_id, title, event_date, max_participants } = req.body;
+  if (!title || !event_date) return res.status(400).json({ error: 'Укажите название и дату.' });
+
+  const chat = await getOrCreateGlobalChat(req.userId);
   const r = await db.query(
     `INSERT INTO events (chat_id, creator_id, workout_id, title, event_date, max_participants)
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-    [chat_id, req.userId, workout_id || null, title, event_date, max_participants || null]
+    [chat.id, req.userId, workout_id || null, title, event_date, max_participants || null]
   );
-  await db.query('INSERT INTO event_participants (event_id, user_id) VALUES ($1,$2)', [r.rows[0].id, req.userId]);
+  await db.query(
+    "INSERT INTO event_participants (event_id, user_id, response) VALUES ($1,$2,'going')",
+    [r.rows[0].id, req.userId]
+  );
   res.json(r.rows[0]);
 });
 
+// Список предстоящих событий общего чата + кто идёт / не идёт (для опроса)
+router.get('/city/events', async (req, res) => {
+  const chat = await getOrCreateGlobalChat(req.userId);
+
+  const events = await db.query(
+    `SELECT id, title, event_date, creator_id FROM events
+      WHERE chat_id=$1 AND cancelled=false
+      ORDER BY event_date ASC`,
+    [chat.id]
+  );
+  if (!events.rows.length) return res.json([]);
+
+  const ids = events.rows.map(e => e.id);
+  const responses = await db.query(
+    `SELECT ep.event_id, ep.user_id, ep.response, coalesce(p.name, u.username) AS name
+       FROM event_participants ep
+       JOIN users u ON u.id = ep.user_id
+       LEFT JOIN profiles p ON p.user_id = u.id
+      WHERE ep.event_id = ANY($1::int[])`,
+    [ids]
+  );
+
+  const byEvent = {};
+  for (const r of responses.rows) (byEvent[r.event_id] ||= []).push(r);
+
+  res.json(events.rows.map(e => {
+    const rows = byEvent[e.id] || [];
+    const going = rows.filter(r => r.response === 'going');
+    const notGoing = rows.filter(r => r.response === 'not_going');
+    const mine = rows.find(r => String(r.user_id) === String(req.userId));
+    return {
+      id: e.id,
+      title: e.title,
+      event_date: e.event_date,
+      isMine: e.creator_id === req.userId,
+      going: going.map(r => r.name),
+      notGoing: notGoing.map(r => r.name),
+      myResponse: mine ? mine.response : null
+    };
+  }));
+});
+
+// Ответить на опрос события: "Буду" (going) или "Не буду" (not_going)
 router.post('/events/:id/join', async (req, res) => {
+  const response = req.body?.response === 'not_going' ? 'not_going' : 'going';
   const ev = await db.query('SELECT * FROM events WHERE id=$1 AND cancelled=false', [req.params.id]);
   if (!ev.rows.length) return res.status(404).json({ error: 'Событие не найдено или отменено.' });
 
-  if (ev.rows[0].max_participants) {
-    const count = await db.query('SELECT count(*) FROM event_participants WHERE event_id=$1', [req.params.id]);
+  if (response === 'going' && ev.rows[0].max_participants) {
+    const count = await db.query(
+      "SELECT count(*) FROM event_participants WHERE event_id=$1 AND response='going'",
+      [req.params.id]
+    );
     if (parseInt(count.rows[0].count, 10) >= ev.rows[0].max_participants) {
       return res.status(400).json({ error: 'Мест больше нет.' });
     }
   }
   await db.query(
-    'INSERT INTO event_participants (event_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-    [req.params.id, req.userId]
+    `INSERT INTO event_participants (event_id, user_id, response) VALUES ($1,$2,$3)
+     ON CONFLICT (event_id, user_id) DO UPDATE SET response=EXCLUDED.response`,
+    [req.params.id, req.userId, response]
   );
   res.json({ ok: true });
 });

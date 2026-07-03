@@ -1,7 +1,9 @@
-// Приводит название города к одному виду для сравнения,
-// чтобы "Алматы", "алматы" и "  Алматы " попадали в один и тот же городской чат.
+// Приводит название города к одному виду для сравнения (пока используется только для профиля).
 function normalizeCity(city) {
   return (city || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-module.exports = { normalizeCity };
+// Единый общий чат для вообще всех зарегистрированных пользователей — не по городам.
+const GLOBAL_CHAT_KEY = '__global__';
+
+module.exports = { normalizeCity, GLOBAL_CHAT_KEY };

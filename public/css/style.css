@@ -54,23 +54,23 @@ button:focus-visible, a:focus-visible{ outline:2px solid var(--cobalt); outline-
 .tabbar{
   position:fixed; left:50%; bottom: calc(16px + env(safe-area-inset-bottom));
   transform:translateX(-50%);
-  display:flex; gap:4px;
-  background:var(--ink); padding:7px;
+  display:flex; gap:8px;
+  background:var(--ink); padding:10px;
   border-radius:999px;
   box-shadow:0 12px 30px rgba(0,0,0,0.28);
   z-index:30;
 }
 .tabbar button{
-  width:50px; height:50px; border-radius:50%;
+  width:64px; height:64px; border-radius:50%;
   display:flex; align-items:center; justify-content:center;
   background:transparent; border:none; cursor:pointer;
   color:rgba(255,255,255,0.62);
   transition: background .15s ease, color .15s ease;
 }
-.tabbar button svg{ width:22px; height:22px; }
+.tabbar button svg{ width:26px; height:26px; }
 .tabbar button.active{ background:#fff; color:var(--ink); }
 
-main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-width:720px; width:100%; margin:0 auto; padding:22px 16px 116px; }
+main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-width:720px; width:100%; margin:0 auto; padding:22px 16px 210px; }
 
 .card{
   background:var(--paper-2); border:1px solid var(--line-on-paper); border-radius:18px;
@@ -125,9 +125,11 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 .msg ul:last-child{ margin-bottom:0; }
 .msg strong{ font-weight:700; }
 .chat-input{
-  display:flex; gap:8px; position:sticky; bottom:96px; z-index:5;
-  background:linear-gradient(to top, var(--paper) 65%, transparent);
-  padding:10px 0 4px;
+  display:flex; gap:8px;
+  position:fixed; left:50%; transform:translateX(-50%);
+  bottom: calc(112px + env(safe-area-inset-bottom));
+  width:100%; max-width:720px; box-sizing:border-box; padding:0 16px;
+  z-index:25;
 }
 .chat-input textarea{ flex:1; border:1px solid var(--line-on-paper); border-radius:16px; padding:12px 14px; resize:none; height:46px; background:var(--paper-2); }
 .chat-toolbar{ display:flex; justify-content:space-between; margin-bottom:12px; }
@@ -156,6 +158,9 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 .lap-num{ font-size:12px; color:var(--text-on-paper-dim); }
 .lap-title{ font-weight:600; }
 .lap-meta{ font-size:12px; color:var(--text-on-paper-dim); margin-top:2px; }
+.lap-right{ display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
+.lap-date{ font-size:12.5px; font-weight:600; text-align:right; }
+.lap-weekday{ font-size:11px; color:var(--text-on-paper-dim); text-align:right; margin-top:-4px; }
 .status-pill{
   font-size:11px; font-weight:600;
   padding:6px 12px; border-radius:980px; border:1px solid var(--line-on-paper); cursor:pointer; background:var(--paper);
@@ -163,6 +168,23 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 .status-pill[data-status="done"]{ background:#34c759; color:#fff; border-color:#34c759; }
 .status-pill[data-status="skipped"]{ color:var(--brick); border-color:var(--brick); background:transparent; }
 .status-pill[data-status="planned"]{ color:var(--cobalt); border-color:var(--cobalt); }
+
+/* ---- Events / poll (Буду / Не буду) ---- */
+.event-card{ margin-bottom:14px; }
+.event-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:10px; }
+.event-title{ font-weight:700; font-size:16px; }
+.event-when{ font-size:13px; color:var(--text-on-paper-dim); margin-top:2px; }
+.rsvp-row{ display:flex; gap:8px; margin-bottom:12px; }
+.rsvp-btn{
+  flex:1; padding:10px; border-radius:14px; border:1px solid var(--line-on-paper);
+  background:var(--paper); font-size:13.5px; font-weight:600; cursor:pointer; color:var(--text-on-paper);
+}
+.rsvp-btn.going.active{ background:#34c759; border-color:#34c759; color:#fff; }
+.rsvp-btn.not-going.active{ background:var(--brick); border-color:var(--brick); color:#fff; }
+.rsvp-bar{ height:8px; border-radius:980px; background:var(--brick); overflow:hidden; margin-bottom:8px; }
+.rsvp-bar-fill{ height:100%; background:#34c759; }
+.rsvp-names{ font-size:12px; color:var(--text-on-paper-dim); }
+.rsvp-names b{ color:var(--text-on-paper); font-weight:600; }
 
 /* ---- Modal (workout details / timer) ---- */
 .modal-overlay{

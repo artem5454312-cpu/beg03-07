@@ -261,6 +261,13 @@ async function viewAgent() {
 function statusLabel(s) { return { planned: 'В процессе', done: 'Выполнено', skipped: 'Пропущено', cancelled: 'Отменено' }[s] || s; }
 function nextStatus(s) { return s === 'planned' ? 'done' : s === 'done' ? 'skipped' : 'planned'; }
 
+const MONTHS_RU = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+const WEEKDAYS_RU = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
+function formatDateHuman(dateStr) {
+  const d = new Date(dateStr + (dateStr.length <= 10 ? 'T00:00:00' : ''));
+  return { date: `${d.getDate()} ${MONTHS_RU[d.getMonth()]}`, weekday: WEEKDAYS_RU[d.getDay()] };
+}
+
 // Пытаемся вытащить примерную длительность (в минутах) из текста тренировки для таймера
 function guessMinutes(typeText) {
   const m = String(typeText).match(/(\d{1,3})\s*мин/);
@@ -310,15 +317,22 @@ async function viewPlan() {
             </button>
           </div>
         </div>
-        ${g.workouts.map((w, i) => `
+        ${g.workouts.map((w, i) => {
+          const dh = formatDateHuman(w.date);
+          return `
           <div class="lap-row" data-workout="${w.id}">
             <div class="lap-num mono">${String(i + 1).padStart(2, '0')}</div>
             <div>
               <div class="lap-title">${escapeHtml(w.type)}</div>
-              <div class="lap-meta">${w.date.slice(0,10)} · ${w.source === 'agent' ? 'агент' : 'вручную'}</div>
+              <div class="lap-meta">${w.source === 'agent' ? 'агент' : 'вручную'}</div>
             </div>
-            <button class="status-pill" data-id="${w.id}" data-status="${w.status}">${statusLabel(w.status)}</button>
-          </div>`).join('') || '<p class="screen-sub" style="padding:8px 4px;">В этом блоке пока нет тренировок.</p>'}
+            <div class="lap-right">
+              <div class="lap-date">${dh.date}</div>
+              <div class="lap-weekday">(${dh.weekday})</div>
+              <button class="status-pill" data-id="${w.id}" data-status="${w.status}">${statusLabel(w.status)}</button>
+            </div>
+          </div>`;
+        }).join('') || '<p class="screen-sub" style="padding:8px 4px;">В этом блоке пока нет тренировок.</p>'}
       </div>`;
     }).join('');
 
@@ -448,19 +462,68 @@ async function viewChats() {
   renderShell('chats');
   const main = document.getElementById('main');
   main.innerHTML = `
-    <h1 class="display screen-title">Городской чат</h1>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+      <h1 class="display screen-title">Общий чат</h1>
+      <button class="btn" id="addEvent">+ Событие</button>
+    </div>
+    <div id="events"></div>
     <div class="chat-log" id="log"></div>
     <div class="chat-input">
       <textarea id="text" placeholder="Написать в чат…"></textarea>
       <button class="btn icon" id="send" aria-label="Отправить"><svg viewBox="0 0 24 24" fill="currentColor">${SEND_ICON}</svg></button>
     </div>`;
 
+  async function loadEvents() {
+    const events = await Api.get('/chats/city/events');
+    const box = document.getElementById('events');
+    if (!events.length) { box.innerHTML = ''; return; }
+    box.innerHTML = events.map(ev => {
+      const total = ev.going.length + ev.notGoing.length;
+      const pct = total ? Math.round((ev.going.length / total) * 100) : 0;
+      const d = new Date(ev.event_date);
+      const when = `${d.getDate()} ${MONTHS_RU[d.getMonth()]} · ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+      return `
+      <div class="card event-card" data-event="${ev.id}">
+        <div class="event-head">
+          <div>
+            <div class="event-title">${escapeHtml(ev.title)}</div>
+            <div class="event-when">${when} (${WEEKDAYS_RU[d.getDay()]})</div>
+          </div>
+        </div>
+        <div class="rsvp-row">
+          <button class="rsvp-btn going ${ev.myResponse === 'going' ? 'active' : ''}" data-response="going">Буду (${ev.going.length})</button>
+          <button class="rsvp-btn not-going ${ev.myResponse === 'not_going' ? 'active' : ''}" data-response="not_going">Не буду (${ev.notGoing.length})</button>
+        </div>
+        ${total ? `<div class="rsvp-bar"><div class="rsvp-bar-fill" style="width:${pct}%;"></div></div>
+        <div class="rsvp-names">${pct}% идут ${ev.going.length ? '· <b>Идут:</b> ' + ev.going.map(escapeHtml).join(', ') : ''}${ev.notGoing.length ? ' · <b>Не идут:</b> ' + ev.notGoing.map(escapeHtml).join(', ') : ''}</div>` : ''}
+      </div>`;
+    }).join('');
+
+    box.querySelectorAll('.rsvp-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const card = btn.closest('.event-card');
+        await Api.post(`/chats/events/${card.dataset.event}/join`, { response: btn.dataset.response });
+        loadEvents();
+      };
+    });
+  }
+  await loadEvents();
+
+  document.getElementById('addEvent').onclick = async () => {
+    const title = prompt('Название события (например: Совместная пробежка)');
+    if (!title) return;
+    const dateStr = prompt('Дата и время (YYYY-MM-DD HH:MM)', new Date().toISOString().slice(0,16).replace('T',' '));
+    if (!dateStr) return;
+    const iso = dateStr.replace(' ', 'T');
+    try {
+      await Api.post('/chats/city/events', { title, event_date: iso });
+      showToast('Событие создано');
+      loadEvents();
+    } catch (e) { showToast(e.message); }
+  };
+
   const data = await Api.get('/chats/city');
   const log = document.getElementById('log');
-  if (!data.chat) {
-    log.innerHTML = '<p class="screen-sub">Укажи город в профиле, чтобы попасть в городской чат.</p>';
-    return;
-  }
   log.innerHTML = data.messages.map(renderCityMsg).join('');
   main.scrollTop = main.scrollHeight;
 
@@ -581,11 +644,22 @@ const routes = {
 };
 
 async function router() {
-  const hash = location.hash || '#/promo';
+  let hash = location.hash || '#/promo';
+  const entryRoutes = ['#/promo', '#/login', '#/register'];
   const protectedRoutes = ['#/agent', '#/plan', '#/chats', '#/profile', '#/onboarding'];
-  if (protectedRoutes.includes(hash) && !Api.getToken()) {
+
+  if (!Api.getToken()) {
     const ok = await Api.tryRefresh();
-    if (!ok) { location.hash = '#/login'; return; }
+    if (ok && entryRoutes.includes(hash)) {
+      // Сессия жива (например, приложение открыли заново с экрана домой) —
+      // не показываем PIN/вход заново, а сразу ведём внутрь приложения.
+      location.hash = '#/agent';
+      return;
+    }
+    if (!ok && protectedRoutes.includes(hash)) {
+      location.hash = '#/login';
+      return;
+    }
   }
   (routes[hash] || viewPromo)();
 }

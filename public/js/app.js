@@ -199,6 +199,34 @@ function viewOnboarding() {
 
 /* ---------------- AGENT ---------------- */
 
+// Голосовой ввод через встроенный в браузер Web Speech API — работает без сервера
+// и без сторонних ключей. На iOS Safari поддержка может быть ограничена/нестабильна.
+function attachVoiceInput(micBtn, textarea) {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) { micBtn.style.display = 'none'; return; }
+  const rec = new Recognition();
+  rec.lang = 'ru-RU';
+  rec.interimResults = false;
+  rec.continuous = false;
+  let listening = false;
+
+  rec.onresult = (e) => {
+    const text = Array.from(e.results).map(r => r[0].transcript).join(' ');
+    textarea.value = (textarea.value ? textarea.value + ' ' : '') + text;
+  };
+  rec.onend = () => { listening = false; micBtn.classList.remove('recording'); };
+  rec.onerror = () => { listening = false; micBtn.classList.remove('recording'); showToast('Не удалось распознать речь'); };
+
+  micBtn.onclick = () => {
+    if (listening) { rec.stop(); return; }
+    listening = true;
+    micBtn.classList.add('recording');
+    rec.start();
+  };
+}
+
+const MIC_ICON = '<path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z"/><path d="M19 11a7 7 0 01-14 0M12 19v3"/>';
+
 async function viewAgent() {
   renderShell('agent');
   const main = document.getElementById('main');
@@ -210,8 +238,11 @@ async function viewAgent() {
     <div class="chat-log" id="log"></div>
     <div class="chat-input">
       <textarea id="text" placeholder="Напиши агенту…"></textarea>
+      <button class="btn icon mic" id="mic" aria-label="Голосовой ввод"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MIC_ICON}</svg></button>
       <button class="btn icon" id="send" aria-label="Отправить"><svg viewBox="0 0 24 24" fill="currentColor">${SEND_ICON}</svg></button>
     </div>`;
+
+  attachVoiceInput(document.getElementById('mic'), document.getElementById('text'));
 
   function scrollLogToBottom() {
     document.getElementById('main').scrollTop = document.getElementById('main').scrollHeight;
@@ -268,6 +299,17 @@ function formatDateHuman(dateStr) {
   return { date: `${d.getDate()} ${MONTHS_RU[d.getMonth()]}`, weekday: WEEKDAYS_RU[d.getDay()] };
 }
 
+// Разбивает текстовое описание плана от агента на два блока: логика плана и питание,
+// чтобы показать их отдельными акцентными карточками, а не одной стеной текста.
+function splitPlanSummary(raw) {
+  if (!raw) return { logic: '', nutrition: '' };
+  const idx = raw.search(/питание/i);
+  if (idx === -1) return { logic: raw, nutrition: '' };
+  let start = raw.lastIndexOf('\n\n', idx);
+  start = start === -1 ? 0 : start + 2;
+  return { logic: raw.slice(0, start).trim(), nutrition: raw.slice(start).trim() };
+}
+
 // Пытаемся вытащить примерную длительность (в минутах) из текста тренировки для таймера
 function guessMinutes(typeText) {
   const m = String(typeText).match(/(\d{1,3})\s*мин/);
@@ -284,13 +326,41 @@ async function viewPlan() {
       <button class="btn" id="addBtn">+ Добавить</button>
     </div>
     <p class="screen-sub">Тренировки собраны блоками — по каждой цели свой набор.</p>
+    <div id="weekStrip"></div>
     <div id="blocks"></div>`;
 
   let cachedGoals = [];
 
+  function renderWeekStrip(goals) {
+    const allWorkouts = goals.flatMap(g => g.workouts);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const todayIso = today.toISOString().slice(0, 10);
+    const dow = (today.getDay() + 6) % 7; // 0 = понедельник
+    const monday = new Date(today); monday.setDate(today.getDate() - dow);
+    const short = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday); d.setDate(monday.getDate() + i);
+      return d;
+    });
+
+    document.getElementById('weekStrip').innerHTML = `<div class="week-strip">${days.map((d, i) => {
+      const iso = d.toISOString().slice(0, 10);
+      const match = allWorkouts.find(w => w.date.slice(0, 10) === iso);
+      const dotClass = !match ? 'empty' : match.status === 'done' ? 'done' : match.status === 'skipped' ? 'skipped' : 'planned';
+      return `
+        <div class="week-day ${iso === todayIso ? 'today' : ''}" title="${match ? escapeHtml(match.type) : 'Нет тренировки'}">
+          <div class="wd-label">${short[i]}</div>
+          <div class="wd-num">${d.getDate()}</div>
+          <div class="wd-dot ${dotClass}"></div>
+        </div>`;
+    }).join('')}</div>`;
+  }
+
   async function load() {
     const goals = await Api.get('/plan/overview');
     cachedGoals = goals;
+    renderWeekStrip(goals);
     const box = document.getElementById('blocks');
     if (!goals.length) {
       box.innerHTML = '<p class="screen-sub">Пока нет ни одного плана — напиши агенту, и он его составит.</p>';
@@ -302,13 +372,13 @@ async function viewPlan() {
       const range = g.workouts.length
         ? `${g.workouts[0].date.slice(0,10)} → ${g.workouts[g.workouts.length-1].date.slice(0,10)}`
         : '';
+      const { logic, nutrition } = splitPlanSummary(g.description);
       return `
       <div class="plan-block ${g.status === 'archived' ? 'archived' : ''}" data-goal="${g.id}">
         <div class="plan-block-head">
           <div class="info">
             <div class="eyebrow">${g.status === 'active' ? 'Текущий план' : 'Архив'} ${range ? '· ' + range : ''}</div>
             <div class="title">${escapeHtml(g.title || 'Общая цель')}</div>
-            ${g.description ? `<div class="desc">${formatAgentText(g.description)}</div>` : ''}
           </div>
           <div style="display:flex;gap:4px;align-items:center;">
             <span class="eyebrow" style="white-space:nowrap;">${done}/${g.workouts.length}</span>
@@ -317,6 +387,8 @@ async function viewPlan() {
             </button>
           </div>
         </div>
+        ${logic ? `<div class="summary-box"><div class="summary-label">Логика плана</div>${formatAgentText(logic)}</div>` : ''}
+        ${nutrition ? `<div class="summary-box nutrition"><div class="summary-label">Питание</div>${formatAgentText(nutrition)}</div>` : ''}
         ${g.workouts.map((w, i) => {
           const dh = formatDateHuman(w.date);
           return `
@@ -470,8 +542,13 @@ async function viewChats() {
     <div class="chat-log" id="log"></div>
     <div class="chat-input">
       <textarea id="text" placeholder="Написать в чат…"></textarea>
+      <input type="file" accept="image/*" id="photoFile" style="display:none;">
+      <button class="btn icon" id="photoBtn" aria-label="Прикрепить фото"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="M21 15l-5-5-4 4-3-3-4 4"/></svg></button>
+      <button class="btn icon mic" id="mic" aria-label="Голосовой ввод"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MIC_ICON}</svg></button>
       <button class="btn icon" id="send" aria-label="Отправить"><svg viewBox="0 0 24 24" fill="currentColor">${SEND_ICON}</svg></button>
     </div>`;
+
+  attachVoiceInput(document.getElementById('mic'), document.getElementById('text'));
 
   async function loadEvents() {
     const events = await Api.get('/chats/city/events');
@@ -536,6 +613,17 @@ async function viewChats() {
     main.scrollTop = main.scrollHeight;
   };
 
+  document.getElementById('photoBtn').onclick = () => document.getElementById('photoFile').click();
+  document.getElementById('photoFile').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const dataUrl = await resizePhotoToDataUrl(file, 640);
+      ws.send(JSON.stringify({ type: 'message', content: 'IMG::' + dataUrl }));
+    } catch { showToast('Не удалось прикрепить фото'); }
+    e.target.value = '';
+  };
+
   document.getElementById('send').onclick = () => {
     const ta = document.getElementById('text');
     if (!ta.value.trim()) return;
@@ -543,15 +631,46 @@ async function viewChats() {
     ta.value = '';
   };
 }
+
+// Сжимает фото для чата, сохраняя пропорции (в отличие от квадратного аватара)
+function resizePhotoToDataUrl(file, maxDim) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => { img.src = reader.result; };
+    reader.onerror = reject;
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.75));
+    };
+    img.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// Подсвечивает @упоминания в тексте сообщения (после экранирования — безопасно)
+function highlightMentions(escapedText) {
+  return escapedText.replace(/(^|[\s(])@([a-zA-Zа-яА-Я0-9_]{2,32})/g, '$1<span class="mention">@$2</span>');
+}
+
 function renderCityMsg(m) {
   const who = m.name || m.username || 'Аноним';
   const own = Api.getUserId() && String(m.user_id) === String(Api.getUserId());
+  const isImage = m.content.startsWith('IMG::');
+  const body = isImage
+    ? `<img class="chat-photo" src="${m.content.slice(5)}" alt="фото">`
+    : highlightMentions(escapeHtml(m.content));
   return `
     <div class="city-row ${own ? 'own' : ''}">
       ${avatarHtml(m.name, m.username, m.photo_url)}
       <div class="city-bubble-wrap">
         ${!own ? `<div class="city-who">${escapeHtml(who)}</div>` : ''}
-        <div class="city-bubble">${escapeHtml(m.content)}</div>
+        <div class="city-bubble">${body}</div>
+        <div class="city-username">@${escapeHtml(m.username || 'user')}</div>
       </div>
     </div>`;
 }
@@ -566,6 +685,7 @@ async function viewProfile() {
     <div class="avatar-picker">
       <label class="avatar-big" id="avatarPreviewWrap" style="cursor:pointer;">
         ${p.photo_url ? `<img src="${p.photo_url}" id="avatarImg">` : `<span id="avatarImg">${(p.name||p.username||'?').charAt(0).toUpperCase()}</span>`}
+        <span class="avatar-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7l1.5-2h5L16 7"/><circle cx="12" cy="13" r="3.5"/></svg></span>
         <input type="file" accept="image/*" id="avatarFile" style="display:none;">
       </label>
       <div>

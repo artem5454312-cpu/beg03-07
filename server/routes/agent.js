@@ -15,13 +15,20 @@ router.get('/messages', async (req, res) => {
 });
 
 router.post('/messages', async (req, res) => {
-  const { content } = req.body;
-  if (!content || !content.trim()) return res.status(400).json({ error: 'Пустое сообщение.' });
+  const { content, image } = req.body; // image: data URL строка, необязательно
+  if ((!content || !content.trim()) && !image) return res.status(400).json({ error: 'Пустое сообщение.' });
 
-  await db.query("INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'user',$2)", [req.userId, content]);
+  const displayContent = image ? 'IMG::' + image : content;
+  await db.query("INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'user',$2)", [req.userId, displayContent]);
+
+  let imagePayload = null;
+  if (image) {
+    const match = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (match) imagePayload = { mediaType: match[1], base64: match[2] };
+  }
 
   try {
-    const reply = await agentService.sendMessage(req.userId, content);
+    const reply = await agentService.sendMessage(req.userId, content || '', { image: imagePayload });
     const saved = await db.query(
       "INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'agent',$2) RETURNING id, role, content, created_at",
       [req.userId, reply]

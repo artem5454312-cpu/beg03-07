@@ -4,7 +4,6 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
-const { GLOBAL_CHAT_KEY } = require('../utils/city');
 
 const router = express.Router();
 
@@ -105,19 +104,8 @@ router.post('/profile-setup', requireAuth, async (req, res) => {
      ON CONFLICT (user_id) DO UPDATE SET name=$2, photo_url=$3, profession=$4, gender=$5, city=$6`,
     [req.userId, name, photo_url || null, profession || null, gender || null, city || null]
   );
-
-  // Один общий чат для всех пользователей — вступаем в него при заполнении профиля,
-  // независимо от города (город остаётся просто полем в профиле, на чат больше не влияет).
-  const globalChat = await db.query(
-    `INSERT INTO city_chats (city_name) VALUES ($1)
-     ON CONFLICT (city_name) DO UPDATE SET city_name=EXCLUDED.city_name RETURNING id`,
-    [GLOBAL_CHAT_KEY]
-  );
-  await db.query(
-    'INSERT INTO city_chat_members (chat_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-    [globalChat.rows[0].id, req.userId]
-  );
-
+  // Вступление в общий чат теперь отдельное явное действие (кнопка "Вступить" на вкладке "Чаты"),
+  // не происходит автоматически при регистрации.
   res.json({ ok: true });
 });
 

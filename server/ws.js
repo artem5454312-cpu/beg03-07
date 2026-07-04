@@ -50,6 +50,14 @@ function attachWebSocket(server) {
       if (data.type === 'message' && data.content?.trim()) {
         let saved;
         if (kind === 'city') {
+          const isMember = await db.query(
+            'SELECT 1 FROM city_chat_members WHERE chat_id=$1 AND user_id=$2',
+            [id, userId]
+          );
+          if (!isMember.rows.length) {
+            ws.send(JSON.stringify({ type: 'error', error: 'Сначала вступи в чат.' }));
+            return;
+          }
           const r = await db.query(
             'INSERT INTO chat_messages (chat_id, user_id, content) VALUES ($1,$2,$3) RETURNING id, content, created_at',
             [id, userId, data.content]
@@ -81,7 +89,7 @@ function attachWebSocket(server) {
         return;
       }
 
-      // Редактирование и удаление сейчас поддержаны только в общем чате
+      // Редактирование, удаление и реакции сейчас поддержаны только в общем чате
       if (kind !== 'city') return;
 
       if (data.type === 'edit' && data.id && typeof data.content === 'string' && data.content.trim()) {
@@ -99,6 +107,35 @@ function attachWebSocket(server) {
           [data.id, userId, id]
         );
         if (r.rows.length) broadcast(room, { type: 'delete', id: r.rows[0].id });
+        return;
+      }
+
+      if (data.type === 'react' && data.id && typeof data.emoji === 'string' && data.emoji) {
+        const emoji = data.emoji.slice(0, 8);
+        const existing = await db.query(
+          'SELECT emoji FROM message_reactions WHERE message_id=$1 AND user_id=$2',
+          [data.id, userId]
+        );
+        if (existing.rows.length && existing.rows[0].emoji === emoji) {
+          // Повторный тап по своей же реакции — снимаем её
+          await db.query('DELETE FROM message_reactions WHERE message_id=$1 AND user_id=$2', [data.id, userId]);
+        } else {
+          await db.query(
+            `INSERT INTO message_reactions (message_id, user_id, emoji) VALUES ($1,$2,$3)
+             ON CONFLICT (message_id, user_id) DO UPDATE SET emoji=EXCLUDED.emoji`,
+            [data.id, userId, emoji]
+          );
+        }
+        const agg = await db.query(
+          `SELECT emoji, count(*)::int AS count, array_agg(user_id) AS user_ids
+             FROM message_reactions WHERE message_id=$1 GROUP BY emoji`,
+          [data.id]
+        );
+        broadcast(room, {
+          type: 'reactions',
+          id: data.id,
+          reactions: agg.rows.map(r => ({ emoji: r.emoji, count: r.count, userIds: r.user_ids }))
+        });
         return;
       }
     });

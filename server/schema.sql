@@ -107,6 +107,27 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Реакции на сообщения общего чата (одна реакция на пользователя на сообщение)
+CREATE TABLE IF NOT EXISTS message_reactions (
+  message_id INTEGER REFERENCES chat_messages(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  emoji TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (message_id, user_id)
+);
+
+-- Отметки "прочитано", чтобы считать бейджи непрочитанных на вкладках/иконке приложения
+CREATE TABLE IF NOT EXISTS chat_read_state (
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  chat_id INTEGER REFERENCES city_chats(id) ON DELETE CASCADE,
+  last_read_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, chat_id)
+);
+CREATE TABLE IF NOT EXISTS agent_read_state (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  last_read_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS reports (
   id SERIAL PRIMARY KEY,
   chat_id INTEGER REFERENCES city_chats(id) ON DELETE CASCADE,

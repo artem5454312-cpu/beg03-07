@@ -54,6 +54,43 @@ function avatarHtml(name, username, photoUrl) {
 
 const SEND_ICON = '<path d="M3 11l18-7-7 18-2.5-7.5L3 11z"/>';
 
+/* ---------------- НЕПРОЧИТАННОЕ (бейджи на вкладках + иконке приложения) ---------------- */
+
+let unreadCounts = { chat: 0, agent: 0 };
+let unreadPollingStarted = false;
+
+function applyBadges() {
+  const chatBadge = document.getElementById('badge-chats');
+  const agentBadge = document.getElementById('badge-agent');
+  if (chatBadge) {
+    chatBadge.textContent = unreadCounts.chat > 99 ? '99+' : unreadCounts.chat;
+    chatBadge.style.display = unreadCounts.chat > 0 ? 'flex' : 'none';
+  }
+  if (agentBadge) {
+    agentBadge.textContent = unreadCounts.agent > 99 ? '99+' : unreadCounts.agent;
+    agentBadge.style.display = unreadCounts.agent > 0 ? 'flex' : 'none';
+  }
+  const total = unreadCounts.chat + unreadCounts.agent;
+  if ('setAppBadge' in navigator) {
+    if (total > 0) navigator.setAppBadge(total).catch(() => {});
+    else navigator.clearAppBadge?.().catch(() => {});
+  }
+}
+
+async function refreshUnreadCounts() {
+  try {
+    unreadCounts = await Api.get('/notifications/unread');
+    applyBadges();
+  } catch { /* тихо игнорируем — не критично для работы приложения */ }
+}
+
+function startUnreadPolling() {
+  if (unreadPollingStarted) return;
+  unreadPollingStarted = true;
+  refreshUnreadCounts();
+  setInterval(refreshUnreadCounts, 20000);
+}
+
 /* ---------------- SHELL ---------------- */
 
 const TAB_ICONS = {
@@ -67,7 +104,7 @@ function renderShell(activeTab) {
   const tabs = ['agent', 'plan', 'chats', 'profile'];
   document.getElementById('app').innerHTML = `
     <div class="topbar">
-      <span class="mark">AI Тренер</span>
+      <span class="mark">PULSE</span>
       <button class="btn ghost" id="logoutBtn" style="padding:6px 10px;">Выйти</button>
     </div>
     <main id="main"></main>
@@ -75,6 +112,7 @@ function renderShell(activeTab) {
       ${tabs.map(id => `
         <button data-tab="${id}" aria-label="${id}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${TAB_ICONS[id]}</svg>
+          ${id === 'chats' || id === 'agent' ? `<span class="tab-badge" id="badge-${id}"></span>` : ''}
         </button>`).join('')}
     </div>
   `;
@@ -86,6 +124,8 @@ function renderShell(activeTab) {
     await Api.post('/auth/logout');
     location.hash = '#/login';
   };
+  applyBadges();
+  startUnreadPolling();
 }
 
 /* ---------------- AUTH SCREENS ---------------- */
@@ -289,6 +329,8 @@ async function viewAgent() {
     </div>
     <div class="chat-log" id="log"></div>
     <div class="chat-input">
+      <input type="file" accept="image/*" id="agentPhotoFile" style="display:none;">
+      <button class="btn icon" id="agentPhotoBtn" aria-label="Прикрепить фото"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="M21 15l-5-5-4 4-3-3-4 4"/></svg></button>
       <textarea id="text" placeholder="Напиши агенту…"></textarea>
       <button class="btn icon mic" id="micSend" aria-label="Голос или отправить"></button>
     </div>`;
@@ -297,12 +339,21 @@ async function viewAgent() {
     document.getElementById('main').scrollTop = document.getElementById('main').scrollHeight;
   }
 
+  function renderAgentMsg(m) {
+    if (m.role === 'user' && m.content.startsWith('IMG::')) {
+      return `<div class="msg user"><img class="chat-photo" src="${m.content.slice(5)}" alt="фото"></div>`;
+    }
+    return `<div class="msg ${m.role}">${m.role === 'agent' ? formatAgentText(m.content) : escapeHtml(m.content)}</div>`;
+  }
+
   async function loadHistory() {
     const msgs = await Api.get('/agent/messages');
     const log = document.getElementById('log');
-    log.innerHTML = msgs.map(m => `<div class="msg ${m.role}">${m.role === 'agent' ? formatAgentText(m.content) : escapeHtml(m.content)}</div>`).join('')
+    log.innerHTML = msgs.map(renderAgentMsg).join('')
       || '<p class="screen-sub">Пока пусто — напиши что-нибудь, чтобы агент начал знакомство.</p>';
+    document.querySelectorAll('#log .chat-photo').forEach(img => { img.onclick = () => openPhotoViewer(img.src); });
     scrollLogToBottom();
+    Api.post('/notifications/mark-read', { scope: 'agent' }).then(refreshUnreadCounts).catch(() => {});
   }
   await loadHistory();
 
@@ -317,7 +368,33 @@ async function viewAgent() {
       document.getElementById('pending').outerHTML = `<div class="msg agent">Ошибка: ${escapeHtml(e.message)}</div>`;
     }
     scrollLogToBottom();
+    Api.post('/notifications/mark-read', { scope: 'agent' }).then(refreshUnreadCounts).catch(() => {});
   }
+
+  document.getElementById('agentPhotoBtn').onclick = () => document.getElementById('agentPhotoFile').click();
+  document.getElementById('agentPhotoFile').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = '';
+    let dataUrl;
+    try {
+      dataUrl = await resizePhotoToDataUrl(file, 1024);
+    } catch { showToast('Не удалось прикрепить фото'); return; }
+
+    const log = document.getElementById('log');
+    log.innerHTML += `<div class="msg user"><img class="chat-photo" src="${dataUrl}" alt="фото"></div>`;
+    document.querySelectorAll('#log .chat-photo').forEach(img => { img.onclick = () => openPhotoViewer(img.src); });
+    log.innerHTML += `<div class="msg agent" id="pending">…</div>`;
+    scrollLogToBottom();
+    try {
+      const reply = await Api.post('/agent/messages', { content: '', image: dataUrl });
+      document.getElementById('pending').outerHTML = `<div class="msg agent">${formatAgentText(reply.content)}</div>`;
+    } catch (err) {
+      document.getElementById('pending').outerHTML = `<div class="msg agent">Ошибка: ${escapeHtml(err.message)}</div>`;
+    }
+    scrollLogToBottom();
+    Api.post('/notifications/mark-read', { scope: 'agent' }).then(refreshUnreadCounts).catch(() => {});
+  };
 
   setupComposer({
     textarea: document.getElementById('text'),
@@ -329,24 +406,28 @@ async function viewAgent() {
       sendToAgent(content);
     },
     onVoice: async (blob) => {
-      // Голосовое сразу уходит "в фон": распознаём Whisper'ом и, как только получили
-      // текст, тут же отправляем его агенту — без промежуточного показа в поле ввода.
+      // Голосовое уходит тихо в фон: пока распознаётся Whisper'ом, показываем тот же
+      // индикатор "печатает…", что и для обычного ответа — без отдельных статусов.
       const dataUrl = await blobToDataUrl(blob);
       const log = document.getElementById('log');
-      log.innerHTML += `<div class="msg user" id="pendingVoice">🎤 Распознаю голосовое…</div>`;
+      log.innerHTML += `<div class="msg agent" id="pending">…</div>`;
       scrollLogToBottom();
       try {
         const tr = await Api.post('/agent/transcribe', { audio: dataUrl });
         const text = (tr.text || '').trim();
         if (!text) {
-          document.getElementById('pendingVoice').outerHTML = `<div class="msg user">🎤 (не удалось разобрать речь)</div>`;
+          document.getElementById('pending').remove();
+          showToast('Не удалось разобрать речь');
           return;
         }
-        document.getElementById('pendingVoice').outerHTML = `<div class="msg user">${escapeHtml(text)}</div>`;
-        sendToAgent(text);
+        document.getElementById('pending').insertAdjacentHTML('beforebegin', `<div class="msg user">${escapeHtml(text)}</div>`);
+        const reply = await Api.post('/agent/messages', { content: text });
+        document.getElementById('pending').outerHTML = `<div class="msg agent">${formatAgentText(reply.content)}</div>`;
       } catch (e) {
-        document.getElementById('pendingVoice').outerHTML = `<div class="msg user">🎤 Ошибка распознавания: ${escapeHtml(e.message || '')}</div>`;
+        document.getElementById('pending').outerHTML = `<div class="msg agent">Ошибка: ${escapeHtml(e.message || 'не удалось распознать речь')}</div>`;
       }
+      scrollLogToBottom();
+      Api.post('/notifications/mark-read', { scope: 'agent' }).then(refreshUnreadCounts).catch(() => {});
     }
   });
 
@@ -645,26 +726,105 @@ async function viewPlan() {
 
 /* ---------------- CHATS ---------------- */
 
+const REACTION_EMOJIS = ['👍','❤️','😂','🔥','😮','😢'];
+
 let ws;
 async function viewChats() {
   renderShell('chats');
   const main = document.getElementById('main');
   main.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
-      <h1 class="display screen-title">Общий чат</h1>
-      <button class="btn" id="addEvent">+ Событие</button>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:8px;">
+      <h1 class="display screen-title" style="margin-bottom:0;">Общий чат</h1>
+      <button class="btn ghost" id="memberCount" style="padding:6px 12px;white-space:nowrap;">…</button>
     </div>
     <p class="screen-sub">События и сообщения идут вместе, одной лентой.</p>
+    <div id="joinBanner"></div>
     <div class="chat-log" id="log"></div>
-    <div class="chat-input">
-      <input type="file" accept="image/*" id="photoFile" style="display:none;">
-      <button class="btn icon" id="photoBtn" aria-label="Прикрепить фото"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="M21 15l-5-5-4 4-3-3-4 4"/></svg></button>
-      <textarea id="text" placeholder="Написать в чат…"></textarea>
-      <button class="btn icon mic" id="micSend" aria-label="Голос или отправить"></button>
-    </div>`;
+    <div id="composerBox"></div>`;
 
-  let messages = [];
-  let events = [];
+  const data = await Api.get('/chats/city');
+  let messages = data.messages;
+  let events = await Api.get('/chats/city/events');
+  let isMember = data.isMember;
+
+  document.getElementById('memberCount').textContent = `${data.memberCount} ${pluralMembers(data.memberCount)}`;
+  document.getElementById('memberCount').onclick = openMembersList;
+
+  async function openMembersList() {
+    const members = await Api.get('/chats/city/members');
+    showModal(`
+      <h2 style="margin-bottom:12px;">Участники (${members.length})</h2>
+      ${members.map(m => `
+        <div class="member-row">
+          ${avatarHtml(m.name, m.username, m.photo_url)}
+          <div>
+            <div class="name">${escapeHtml(m.name || m.username)}</div>
+            <div class="username">@${escapeHtml(m.username)}</div>
+          </div>
+        </div>`).join('') || '<p class="screen-sub">Пока никого нет.</p>'}
+    `);
+  }
+
+  function renderComposer() {
+    const box = document.getElementById('composerBox');
+    if (!isMember) {
+      document.getElementById('joinBanner').innerHTML = `
+        <div class="join-banner card">
+          <p>Вступи в общий чат, чтобы писать сообщения, реагировать и участвовать в событиях.</p>
+          <button class="btn accent-lg" id="joinBtn">Вступить</button>
+        </div>`;
+      document.getElementById('joinBtn').onclick = async () => {
+        await Api.post('/chats/city/join', {});
+        isMember = true;
+        const countBtn = document.getElementById('memberCount');
+        countBtn.textContent = (parseInt(countBtn.textContent, 10) + 1) + ' ' + pluralMembers(parseInt(countBtn.textContent, 10) + 1);
+        document.getElementById('joinBanner').innerHTML = '';
+        renderComposer();
+        connectSocket();
+        showToast('Добро пожаловать в чат!');
+      };
+      box.innerHTML = '';
+      return;
+    }
+    document.getElementById('joinBanner').innerHTML = '';
+    box.innerHTML = `
+      <div class="chat-input">
+        <input type="file" accept="image/*" id="photoFile" style="display:none;">
+        <button class="btn icon" id="plusBtn" aria-label="Добавить"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
+        <textarea id="text" placeholder="Написать в чат…"></textarea>
+        <button class="btn icon mic" id="micSend" aria-label="Голос или отправить"></button>
+      </div>`;
+
+    document.getElementById('plusBtn').onclick = () => {
+      showModal(`
+        <button class="btn block" id="actPhoto" style="margin-bottom:10px;">📷 Фото</button>
+        <button class="btn ghost block" id="actEvent">📅 Событие</button>
+      `);
+      document.getElementById('actPhoto').onclick = () => { closeModal(); document.getElementById('photoFile').click(); };
+      document.getElementById('actEvent').onclick = () => { closeModal(); createEventFlow(); };
+    };
+    document.getElementById('photoFile').onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const dataUrl = await resizePhotoToDataUrl(file, 640);
+        ws.send(JSON.stringify({ type: 'message', content: 'IMG::' + dataUrl }));
+      } catch { showToast('Не удалось прикрепить фото'); }
+      e.target.value = '';
+    };
+
+    setupComposer({
+      textarea: document.getElementById('text'),
+      micSendBtn: document.getElementById('micSend'),
+      onSend: (content) => ws.send(JSON.stringify({ type: 'message', content })),
+      onVoice: async (blob) => {
+        // В общем чате голосовое отправляется как есть — остальные могут прослушать,
+        // ничего не транскрибируется (в отличие от чата с агентом).
+        const dataUrl = await blobToDataUrl(blob);
+        ws.send(JSON.stringify({ type: 'message', content: 'AUD::' + dataUrl }));
+      }
+    });
+  }
 
   function timeline() {
     const items = [
@@ -680,6 +840,7 @@ async function viewChats() {
     log.innerHTML = timeline();
     wireLogInteractions();
     main.scrollTop = main.scrollHeight;
+    Api.post('/notifications/mark-read', { scope: 'chat' }).then(refreshUnreadCounts).catch(() => {});
   }
 
   function wireLogInteractions() {
@@ -696,9 +857,11 @@ async function viewChats() {
     document.querySelectorAll('.rsvp-btn').forEach(btn => {
       btn.onclick = async () => {
         const card = btn.closest('.event-card');
-        await Api.post(`/chats/events/${card.dataset.event}/join`, { response: btn.dataset.response });
-        events = await Api.get('/chats/city/events');
-        renderLog();
+        try {
+          await Api.post(`/chats/events/${card.dataset.event}/join`, { response: btn.dataset.response });
+          events = await Api.get('/chats/city/events');
+          renderLog();
+        } catch (e) { showToast(e.message); }
       };
     });
     document.querySelectorAll('.delete-event').forEach(btn => {
@@ -707,6 +870,31 @@ async function viewChats() {
         await Api.post(`/chats/events/${btn.dataset.event}/cancel`, {});
         events = events.filter(e => String(e.id) !== String(btn.dataset.event));
         renderLog();
+      };
+    });
+    document.querySelectorAll('.reaction-pill').forEach(pill => {
+      pill.onclick = () => {
+        const msgId = pill.closest('[data-msg-id]').dataset.msgId;
+        ws.send(JSON.stringify({ type: 'react', id: msgId, emoji: pill.dataset.emoji }));
+      };
+    });
+    // Зажми сообщение — выскакивает выбор реакции
+    document.querySelectorAll('.city-bubble-wrap').forEach(wrap => {
+      attachLongPress(wrap, () => {
+        const msgId = wrap.closest('[data-msg-id]').dataset.msgId;
+        const msg = messages.find(m => String(m.id) === String(msgId));
+        if (msg) openReactionPicker(msg);
+      });
+    });
+    wireVoicePlayers(document.getElementById('log'));
+  }
+
+  function openReactionPicker(msg) {
+    showModal(`<div class="reaction-picker">${REACTION_EMOJIS.map(e => `<button class="reaction-opt" data-emoji="${e}">${e}</button>`).join('')}</div>`);
+    document.querySelectorAll('.reaction-opt').forEach(btn => {
+      btn.onclick = () => {
+        ws.send(JSON.stringify({ type: 'react', id: msg.id, emoji: btn.dataset.emoji }));
+        closeModal();
       };
     });
   }
@@ -722,7 +910,7 @@ async function viewChats() {
         closeModal();
         showModal(`
           <h2 style="margin-bottom:10px;">Изменить сообщение</h2>
-          <textarea id="editText" style="width:100%;min-height:90px;border:1px solid var(--line-on-paper);border-radius:12px;padding:10px;">${escapeHtml(msg.content)}</textarea>
+          <textarea id="editText" style="width:100%;min-height:90px;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--surface);color:var(--text);">${escapeHtml(msg.content)}</textarea>
           <button class="btn block" id="saveEdit" style="margin-top:12px;">Сохранить</button>
         `);
         document.getElementById('saveEdit').onclick = () => {
@@ -740,7 +928,7 @@ async function viewChats() {
     };
   }
 
-  document.getElementById('addEvent').onclick = async () => {
+  async function createEventFlow() {
     const title = prompt('Название события (например: Совместная пробежка)');
     if (!title) return;
     const dateStr = prompt('Дата и время (YYYY-MM-DD HH:MM)', new Date().toISOString().slice(0,16).replace('T',' '));
@@ -752,54 +940,62 @@ async function viewChats() {
       events = await Api.get('/chats/city/events');
       renderLog();
     } catch (e) { showToast(e.message); }
-  };
+  }
 
-  document.getElementById('photoBtn').onclick = () => document.getElementById('photoFile').click();
-  document.getElementById('photoFile').onchange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      const dataUrl = await resizePhotoToDataUrl(file, 640);
-      ws.send(JSON.stringify({ type: 'message', content: 'IMG::' + dataUrl }));
-    } catch { showToast('Не удалось прикрепить фото'); }
-    e.target.value = '';
-  };
-
-  setupComposer({
-    textarea: document.getElementById('text'),
-    micSendBtn: document.getElementById('micSend'),
-    onSend: (content) => {
-      ws.send(JSON.stringify({ type: 'message', content }));
-    },
-    onVoice: async (blob) => {
-      // В общем чате голосовое отправляется как есть — остальные могут его прослушать,
-      // текст никуда не транскрибируется (в отличие от чата с агентом).
-      const dataUrl = await blobToDataUrl(blob);
-      ws.send(JSON.stringify({ type: 'message', content: 'AUD::' + dataUrl }));
-    }
-  });
-
-  const data = await Api.get('/chats/city');
-  messages = data.messages;
-  events = await Api.get('/chats/city/events');
+  renderComposer();
   renderLog();
 
-  const token = Api.getToken();
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws?token=${token}&room=city:${data.chat.id}`);
-  ws.onmessage = (ev) => {
-    const msg = JSON.parse(ev.data);
-    if (msg.type === 'message') {
-      messages.push(msg);
-      renderLog();
-    } else if (msg.type === 'edit') {
-      const m = messages.find(x => String(x.id) === String(msg.id));
-      if (m) { m.content = msg.content; renderLog(); }
-    } else if (msg.type === 'delete') {
-      messages = messages.filter(x => String(x.id) !== String(msg.id));
-      renderLog();
-    }
-  };
+  function connectSocket() {
+    const token = Api.getToken();
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws?token=${token}&room=city:${data.chat.id}`);
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === 'message') {
+        messages.push(msg);
+        renderLog();
+      } else if (msg.type === 'edit') {
+        const m = messages.find(x => String(x.id) === String(msg.id));
+        if (m) { m.content = msg.content; renderLog(); }
+      } else if (msg.type === 'delete') {
+        messages = messages.filter(x => String(x.id) !== String(msg.id));
+        renderLog();
+      } else if (msg.type === 'reactions') {
+        const m = messages.find(x => String(x.id) === String(msg.id));
+        if (m) {
+          const myId = String(Api.getUserId());
+          m.reactions = msg.reactions.map(r => ({ emoji: r.emoji, count: r.count, mine: r.userIds.map(String).includes(myId) }));
+          renderLog();
+        }
+      } else if (msg.type === 'error') {
+        showToast(msg.error);
+      }
+    };
+  }
+  if (isMember) connectSocket();
+}
+
+function pluralMembers(n) {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'участник';
+  if ([2,3,4].includes(mod10) && ![12,13,14].includes(mod100)) return 'участника';
+  return 'участников';
+}
+
+// Долгий тап (зажатие) — для вызова меню реакций на сообщении
+function attachLongPress(el, callback, ms = 450) {
+  let timer = null, moved = false, startX = 0, startY = 0;
+  el.addEventListener('pointerdown', (e) => {
+    moved = false;
+    startX = e.clientX; startY = e.clientY;
+    timer = setTimeout(() => { if (!moved) callback(e); }, ms);
+  });
+  const cancel = () => clearTimeout(timer);
+  el.addEventListener('pointerup', cancel);
+  el.addEventListener('pointerleave', cancel);
+  el.addEventListener('pointermove', (e) => {
+    if (Math.abs(e.clientX - startX) > 10 || Math.abs(e.clientY - startY) > 10) { moved = true; cancel(); }
+  });
 }
 
 function openPhotoViewer(url) {
@@ -808,6 +1004,69 @@ function openPhotoViewer(url) {
   ov.innerHTML = `<img src="${url}" alt="фото">`;
   ov.onclick = () => ov.remove();
   document.body.appendChild(ov);
+}
+
+// Псевдослучайные, но стабильные "столбики" волны — для декоративного плеера голосового
+function voiceBars(seed) {
+  let x = (seed || 1) % 100000 + 1, bars = '';
+  for (let i = 0; i < 24; i++) {
+    x = (x * 9301 + 49297) % 233280;
+    bars += `<span class="vbar" style="height:${18 + Math.floor((x / 233280) * 82)}%"></span>`;
+  }
+  return bars;
+}
+
+const PLAY_ICON = '<path d="M7 5l12 7-12 7V5z"/>';
+const PAUSE_ICON = '<path d="M7 5h3v14H7zM14 5h3v14h-3z"/>';
+
+// Плеер голосового сообщения в стиле Telegram: своя "волна" вместо нативных браузерных контролов
+function renderVoiceMsg(id, url) {
+  return `
+    <div class="voice-msg" data-audio-msg="${id}">
+      <button class="voice-play" aria-label="Слушать"><svg viewBox="0 0 24 24" fill="currentColor">${PLAY_ICON}</svg></button>
+      <div class="voice-wave">${voiceBars(id)}</div>
+      <span class="voice-time mono">0:00</span>
+      <audio preload="metadata" src="${url}"></audio>
+    </div>`;
+}
+
+function wireVoicePlayers(root) {
+  root.querySelectorAll('.voice-msg').forEach(el => {
+    if (el.dataset.wired) return;
+    el.dataset.wired = '1';
+    const audio = el.querySelector('audio');
+    const btn = el.querySelector('.voice-play');
+    const timeEl = el.querySelector('.voice-time');
+    const bars = [...el.querySelectorAll('.vbar')];
+
+    function fmt(s) {
+      s = Math.max(0, Math.round(s || 0));
+      return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    }
+    audio.addEventListener('loadedmetadata', () => {
+      if (isFinite(audio.duration)) timeEl.textContent = fmt(audio.duration);
+    });
+    audio.addEventListener('timeupdate', () => {
+      timeEl.textContent = '-' + fmt(audio.duration - audio.currentTime);
+      const activeCount = Math.round((audio.currentTime / (audio.duration || 1)) * bars.length);
+      bars.forEach((b, i) => b.classList.toggle('played', i < activeCount));
+    });
+    audio.addEventListener('ended', () => {
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor">${PLAY_ICON}</svg>`;
+      timeEl.textContent = fmt(audio.duration);
+      bars.forEach(b => b.classList.remove('played'));
+    });
+    btn.onclick = () => {
+      if (audio.paused) {
+        document.querySelectorAll('.voice-msg audio').forEach(a => { if (a !== audio) a.pause(); });
+        audio.play();
+        btn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor">${PAUSE_ICON}</svg>`;
+      } else {
+        audio.pause();
+        btn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor">${PLAY_ICON}</svg>`;
+      }
+    };
+  });
 }
 
 function renderEventCard(ev) {
@@ -870,16 +1129,21 @@ function renderCityMsg(m) {
   if (isImage) {
     body = `<img class="chat-photo" src="${m.content.slice(5)}" alt="фото">`;
   } else if (isAudio) {
-    body = `<audio class="chat-audio" controls preload="metadata" src="${m.content.slice(5)}"></audio>`;
+    body = renderVoiceMsg(m.id, m.content.slice(5));
   } else {
     body = `<div class="city-bubble">${highlightMentions(escapeHtml(m.content))}</div>`;
   }
+  const myId = String(Api.getUserId());
+  const reactionsHtml = (m.reactions && m.reactions.length)
+    ? `<div class="reaction-row">${m.reactions.map(r => `<span class="reaction-pill ${r.mine ? 'mine' : ''}" data-emoji="${r.emoji}">${r.emoji} ${r.count}</span>`).join('')}</div>`
+    : '';
   return `
     <div class="city-row ${own ? 'own' : ''}" data-msg-id="${m.id}">
       ${avatarHtml(m.name, m.username, m.photo_url)}
       <div class="city-bubble-wrap">
         ${!own ? `<div class="city-who">${escapeHtml(who)}</div>` : ''}
         ${body}
+        ${reactionsHtml}
         <div class="city-meta-row">
           <span class="city-username">@${escapeHtml(m.username || 'user')}</span>
           ${own ? '<button class="msg-more" aria-label="Действия">⋯</button>' : ''}

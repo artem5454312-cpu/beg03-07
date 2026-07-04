@@ -1,124 +1,126 @@
-/* ===== Дизайн-система: светлый минимализм в духе Apple (iOS/iPadOS) ===== */
+/* ===== Дизайн-система PULSE: электрик-лайм на графите (спортивный, тёмный) ===== */
 :root{
-  --ink:#1d1d1f;              /* почти чёрный — основной текст, тёмные поверхности */
-  --ink-2:#2c2c2e;
-  --paper:#f5f5f7;            /* фон приложения, как в iOS Settings */
-  --paper-2:#ffffff;          /* поверхность карточек */
-  --cobalt:#0071e3;           /* системный синий Apple */
-  --cobalt-dim:#0077ed;
-  --brick:#ff3b30;            /* системный красный */
-  --line-on-ink: rgba(255,255,255,0.14);
-  --line-on-paper: rgba(0,0,0,0.08);
-  --text-on-ink:#f5f5f7;
-  --text-on-ink-dim: rgba(245,245,247,0.6);
-  --text-on-paper:#1d1d1f;
-  --text-on-paper-dim: rgba(29,29,31,0.56);
-  --shadow-card: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06);
+  --ink:#0e0f0c;             /* фон приложения — почти чёрный, тёплый графит */
+  --surface:#1a1c17;         /* поверхности: инпуты, таб-бар, ячейки */
+  --surface-2:#1f221b;       /* пузыри агента, приподнятые блоки */
+  --card:#161811;            /* карточки/блоки */
+  --lime:#cbfb45;            /* акцент — электрик-лайм */
+  --lime-dim:#b9e83a;        /* лайм при наведении */
+  --lime-ink:#12140d;        /* текст поверх лайма */
+  --brick:#ff6b5e;           /* красный — пропуск/удаление */
+  --amber:#ffb74d;           /* «нужно постараться» */
+  --blue:#7ab6ff;            /* второстепенный акцент (питание) */
+  --line: rgba(255,255,255,0.08);
+  --line-strong: rgba(255,255,255,0.14);
+  --text:#f2f4ec;
+  --text-dim: rgba(242,244,236,0.55);
+  --text-dim2: rgba(242,244,236,0.4);
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.3), 0 16px 40px -20px rgba(0,0,0,0.6);
 }
 *{box-sizing:border-box; margin:0; padding:0;}
 body{
-  background:var(--paper); color:var(--text-on-paper);
-  font-family:-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', Roboto, sans-serif;
+  background:var(--ink); color:var(--text);
+  font-family:'Barlow', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   min-height:100svh;
   -webkit-font-smoothing:antialiased;
 }
-a{ color:var(--cobalt); text-decoration:none; }
+a{ color:var(--lime); text-decoration:none; }
 .display{
-  font-family:-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif;
-  font-weight:700; letter-spacing:-0.02em; line-height:1.08;
+  font-family:'Barlow Semi Condensed', 'Barlow', sans-serif;
+  font-weight:800; letter-spacing:.01em; line-height:1.04; text-transform:uppercase;
 }
 .mono{ font-variant-numeric:tabular-nums; font-feature-settings:"tnum"; }
-.eyebrow{ font-size:12px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--text-on-paper-dim); }
+.eyebrow{ font-family:'Barlow Semi Condensed',sans-serif; font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--text-dim); }
 button, input, textarea, select{ font-family:inherit; font-size:16px; }
 
-/* Убираем стандартную синюю рамку браузера на инпутах, оставляем только смену цвета границы */
 input:focus, textarea:focus, select:focus{ outline:none; }
-button:focus-visible, a:focus-visible{ outline:2px solid var(--cobalt); outline-offset:2px; border-radius:4px; }
+button:focus-visible, a:focus-visible{ outline:2px solid var(--lime); outline-offset:2px; border-radius:4px; }
 
 /* ---- App shell ---- */
 #app{ height:100dvh; display:flex; flex-direction:column; overflow:hidden; }
 
 .topbar{
-  background:rgba(245,245,247,0.82);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  color:var(--text-on-paper);
+  background:rgba(14,15,12,0.82);
+  backdrop-filter: saturate(160%) blur(20px);
+  -webkit-backdrop-filter: saturate(160%) blur(20px);
+  color:var(--text);
   display:flex; align-items:center; justify-content:space-between;
   padding:14px 20px;
-  border-bottom:1px solid var(--line-on-paper);
+  border-bottom:1px solid var(--line);
   flex:0 0 auto;
 }
-.topbar .mark{ font-family:-apple-system,'SF Pro Display',sans-serif; font-weight:700; font-size:19px; letter-spacing:-0.01em; }
+.topbar .mark{ font-family:'Barlow Semi Condensed',sans-serif; font-weight:800; font-size:22px; letter-spacing:.04em; text-transform:uppercase; }
 
-/* Плавающая капсула снизу — иконки без подписей, активная подсвечена белым кружком */
+/* Плавающая капсула снизу — иконки без подписей, активная подсвечена лаймом */
 .tabbar{
   position:fixed; left:50%; bottom: calc(52px + env(safe-area-inset-bottom));
   transform:translateX(-50%);
-  display:flex; gap:8px;
-  background:var(--ink); padding:6px 8px;
+  display:flex; gap:6px;
+  background:var(--surface); padding:6px 8px;
   border-radius:999px;
-  box-shadow:0 12px 30px rgba(0,0,0,0.28);
+  border:1px solid var(--line);
+  box-shadow:0 14px 32px -8px rgba(0,0,0,0.6);
   z-index:30;
 }
 .tabbar button{
-  width:64px; height:39px; border-radius:19px;
+  width:60px; height:39px; border-radius:19px;
   display:flex; align-items:center; justify-content:center;
   background:transparent; border:none; cursor:pointer;
-  color:rgba(255,255,255,0.62);
+  color:rgba(242,244,236,0.5);
   transition: background .15s ease, color .15s ease;
 }
 .tabbar button svg{ width:21px; height:21px; }
-.tabbar button.active{ background:#fff; color:var(--ink); }
+.tabbar button.active{ background:var(--lime); color:var(--lime-ink); }
 
 main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-width:720px; width:100%; margin:0 auto; padding:22px 16px 205px; }
 
 .card{
-  background:var(--paper-2); border:1px solid var(--line-on-paper); border-radius:18px;
+  background:var(--card); border:1px solid var(--line); border-radius:18px;
   padding:20px; margin-bottom:14px;
   box-shadow: var(--shadow-card);
 }
-.screen-title{ font-size:clamp(28px,7vw,38px); margin-bottom:6px; }
-.screen-sub{ color:var(--text-on-paper-dim); font-size:14px; margin-bottom:22px; }
+.screen-title{ font-size:clamp(30px,8vw,42px); margin-bottom:6px; }
+.screen-sub{ color:var(--text-dim); font-size:14px; margin-bottom:22px; }
 
 /* ---- Auth screens (по центру экрана) ---- */
 .auth-wrap{ flex:1; width:100%; display:flex; align-items:center; justify-content:center; padding:24px; }
 .auth-card{ width:100%; max-width:400px; }
-.pin-input{ text-align:center; font-size:30px; font-weight:700; letter-spacing:14px; padding-left:18px; }
+.pin-input{ text-align:center; font-family:'Barlow Semi Condensed',sans-serif; font-size:34px; font-weight:800; letter-spacing:14px; padding-left:18px; }
 
 /* ---- Forms ---- */
 .field{ margin-bottom:16px; }
-.field label{ display:block; font-size:12px; font-weight:600; letter-spacing:.02em; color:var(--text-on-paper-dim); margin-bottom:6px; }
+.field label{ display:block; font-family:'Barlow Semi Condensed',sans-serif; font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--text-dim); margin-bottom:7px; }
 .field input, .field select, .field textarea{
-  width:100%; background:var(--paper-2); border:1px solid var(--line-on-paper); border-radius:12px;
-  padding:12px 14px; color:var(--text-on-paper);
+  width:100%; background:var(--surface); border:1px solid var(--line); border-radius:14px;
+  padding:13px 15px; color:var(--text);
 }
-.field input:focus, .field textarea:focus, .field select:focus{ border-color:var(--cobalt); }
+.field input:focus, .field textarea:focus, .field select:focus{ border-color:var(--lime); }
 .hint{ font-size:12px; margin-top:4px; }
-.hint.ok{ color:#34c759; }
+.hint.ok{ color:var(--lime); }
 .hint.err{ color:var(--brick); }
 
 .btn{
   display:inline-flex; align-items:center; justify-content:center;
-  background:var(--cobalt); color:#fff;
+  background:var(--lime); color:var(--lime-ink);
   border:none; border-radius:980px;
   padding:12px 22px; cursor:pointer;
-  font-size:14px; font-weight:600;
+  font-family:'Barlow Semi Condensed',sans-serif; font-size:15px; font-weight:800; text-transform:uppercase; letter-spacing:.02em;
   transition: transform .12s ease, background .15s ease;
 }
-.btn:hover{ background:var(--cobalt-dim); }
+.btn:hover{ background:var(--lime-dim); }
 .btn:active{ transform:scale(.96); }
-.btn.ghost{ background:transparent; color:var(--cobalt); border:1px solid var(--line-on-paper); }
+.btn.ghost{ background:transparent; color:var(--lime); border:1px solid var(--line-strong); }
 .btn.block{ width:100%; }
-.btn.accent-lg{ width:100%; padding:16px; font-size:16px; border-radius:18px; }
+.btn.accent-lg{ width:100%; padding:16px; font-size:17px; border-radius:16px; }
 .btn.icon{ width:46px; height:46px; border-radius:50%; padding:0; flex:0 0 auto; }
 .btn.icon svg{ width:19px; height:19px; }
 .error-box{ color:var(--brick); font-size:13px; margin-bottom:12px; }
 
-/* ---- Agent chat (iMessage-style bubbles) ---- */
-.chat-log{ display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
-.msg{ max-width:82%; padding:11px 15px; font-size:15.5px; line-height:1.42; border-radius:20px; }
-.msg.user{ align-self:flex-end; background:var(--cobalt); color:#fff; border-bottom-right-radius:6px; }
-.msg.agent{ align-self:flex-start; background:#e9e9eb; color:var(--text-on-paper); border-bottom-left-radius:6px; }
+/* ---- Agent chat (пузыри) ---- */
+.chat-log{ display:flex; flex-direction:column; gap:9px; margin-bottom:12px; }
+.msg{ max-width:82%; padding:11px 15px; font-size:15px; line-height:1.45; border-radius:20px; }
+.msg.user{ align-self:flex-end; background:var(--lime); color:var(--lime-ink); font-weight:600; border-bottom-right-radius:6px; }
+.msg.agent{ align-self:flex-start; background:var(--surface-2); color:var(--text); border-bottom-left-radius:6px; }
 .msg p{ margin:0 0 8px; }
 .msg p:last-child{ margin-bottom:0; }
 .msg ul{ margin:2px 0 8px 18px; padding:0; }
@@ -131,180 +133,234 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
   width:100%; max-width:720px; box-sizing:border-box; padding:0 16px;
   z-index:25;
 }
-.chat-input textarea{ flex:1; border:1px solid var(--line-on-paper); border-radius:16px; padding:12px 14px; resize:none; height:46px; background:var(--paper-2); }
+.chat-input textarea{ flex:1; border:1px solid var(--line); border-radius:16px; padding:12px 14px; resize:none; height:46px; background:var(--surface); color:var(--text); }
 .chat-toolbar{ display:flex; justify-content:space-between; margin-bottom:12px; }
-.chat-toolbar button{ background:none; border:none; color:var(--cobalt); font-size:13px; font-weight:600; cursor:pointer; }
+.chat-toolbar button{ background:none; border:none; color:var(--lime); font-family:'Barlow Semi Condensed',sans-serif; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; cursor:pointer; }
 .btn.icon.mic.recording{ background:var(--brick); }
-.btn.icon.mic.recording::after{ content:''; }
-@keyframes pulseRec{ 0%,100%{ box-shadow:0 0 0 0 rgba(255,59,48,.5);} 50%{ box-shadow:0 0 0 8px rgba(255,59,48,0);} }
+@keyframes pulseRec{ 0%,100%{ box-shadow:0 0 0 0 rgba(255,107,94,.5);} 50%{ box-shadow:0 0 0 8px rgba(255,107,94,0);} }
 .btn.icon.mic.recording{ animation: pulseRec 1.2s infinite; }
 
 /* ---- Plan blocks ---- */
 .plan-block{ margin-bottom:24px; }
 .plan-block-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:10px; }
 .plan-block-head .info{ min-width:0; }
-.plan-block-head .title{ font-weight:700; font-size:17px; }
-.plan-block.archived{ opacity:0.55; }
+.plan-block-head .title{ font-family:'Barlow Semi Condensed',sans-serif; font-weight:800; font-size:20px; text-transform:uppercase; letter-spacing:.01em; }
+.plan-block.archived{ opacity:0.5; }
 
-/* Блочное, акцентное описание плана (логика + питание отдельными карточками) */
-.summary-box{ background:var(--paper); border-left:3px solid var(--cobalt); border-radius:10px; padding:10px 12px; margin-bottom:8px; font-size:13.5px; }
-.summary-box.nutrition{ border-left-color:#34c759; }
+.summary-box{ background:rgba(203,251,69,0.08); border-left:3px solid var(--lime); border-radius:10px; padding:11px 13px; margin-bottom:8px; font-size:13.5px; color:#dfe3d6; }
+.summary-box.nutrition{ background:rgba(255,255,255,0.04); border-left-color:rgba(242,244,236,0.35); }
 .summary-box p{ margin:0 0 6px; }
 .summary-box p:last-child{ margin-bottom:0; }
-.summary-box strong{ color:var(--text-on-paper); }
-.summary-label{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-on-paper-dim); margin-bottom:4px; }
+.summary-box strong{ color:var(--text); }
+.summary-label{ font-family:'Barlow Semi Condensed',sans-serif; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim); margin-bottom:4px; }
 
-/* Недельная полоска-календарь сверху экрана "План" — теперь прокручивается пальцем */
+/* Недельная полоска-календарь */
 #weekStrip{ overflow-x:auto; -webkit-overflow-scrolling:touch; margin:0 -16px 20px; padding:0 16px; scrollbar-width:none; }
 #weekStrip::-webkit-scrollbar{ display:none; }
-.week-strip{ display:flex; gap:6px; width:max-content; }
-.week-day{ width:44px; flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:5px; padding:10px 2px; border-radius:14px; background:var(--paper-2); border:1px solid var(--line-on-paper); cursor:pointer; }
-.week-day.today{ background:linear-gradient(160deg, var(--cobalt), var(--cobalt-dim)); border-color:transparent; }
-.week-day.today .wd-label, .week-day.today .wd-num{ color:#fff; }
-.wd-label{ font-size:10px; font-weight:600; color:var(--text-on-paper-dim); text-transform:uppercase; }
+.week-strip{ display:flex; gap:7px; width:max-content; }
+.week-day{ width:45px; flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:6px; padding:10px 2px; border-radius:14px; background:var(--surface); border:1px solid var(--line); cursor:pointer; }
+.week-day.today{ background:linear-gradient(160deg, var(--lime), #a8e02f); border-color:transparent; }
+.week-day.today .wd-label, .week-day.today .wd-num{ color:var(--lime-ink); }
+.wd-label{ font-family:'Barlow Semi Condensed',sans-serif; font-size:10px; font-weight:700; color:var(--text-dim); text-transform:uppercase; }
 .wd-num{ font-size:15px; font-weight:700; }
 .wd-dot{ width:6px; height:6px; border-radius:50%; background:transparent; }
-.wd-dot.planned{ background:var(--cobalt); }
-.wd-dot.done{ background:#34c759; }
+.wd-dot.planned{ background:var(--lime); }
+.wd-dot.done{ background:var(--lime); }
 .wd-dot.skipped{ background:var(--brick); }
-.week-day.today .wd-dot.planned{ background:#fff; }
+.week-day.today .wd-dot.planned{ background:var(--lime-ink); }
 
 /* Бейдж сложности тренировки */
-.diff-badge{ display:inline-block; font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:980px; margin-top:5px; }
-.diff-badge.easy{ background:rgba(52,199,89,0.14); color:#248a3d; }
-.diff-badge.medium{ background:rgba(0,113,227,0.12); color:var(--cobalt); }
-.diff-badge.hard{ background:rgba(255,59,48,0.12); color:var(--brick); }
+.diff-badge{ display:inline-block; font-family:'Barlow Semi Condensed',sans-serif; font-size:10.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; padding:3px 9px; border-radius:980px; margin-top:5px; }
+.diff-badge.easy{ background:rgba(203,251,69,0.16); color:var(--lime); }
+.diff-badge.medium{ background:rgba(255,255,255,0.08); color:rgba(242,244,236,0.7); }
+.diff-badge.hard{ background:rgba(255,183,77,0.16); color:var(--amber); }
 .icon-btn{
-  background:none; border:none; cursor:pointer; color:var(--text-on-paper-dim);
+  background:none; border:none; cursor:pointer; color:var(--text-dim);
   width:32px; height:32px; border-radius:10px; flex:0 0 auto;
   display:flex; align-items:center; justify-content:center;
 }
-.icon-btn:hover{ background:var(--line-on-paper); color:var(--brick); }
+.icon-btn:hover{ background:var(--line); color:var(--brick); }
 .icon-btn svg{ width:18px; height:18px; }
 
-.lap-row{ display:grid; grid-template-columns:32px 1fr auto; gap:12px; align-items:center; padding:14px 4px; border-top:1px solid var(--line-on-paper); background:var(--paper-2); cursor:pointer; }
-.lap-row:first-child{ border-top:none; border-top-left-radius:14px; border-top-right-radius:14px; }
-.lap-row:last-child{ border-bottom:1px solid var(--line-on-paper); border-bottom-left-radius:14px; border-bottom-right-radius:14px; }
-.lap-num{ font-size:12px; color:var(--text-on-paper-dim); }
+.lap-row{ display:grid; grid-template-columns:32px 1fr auto; gap:12px; align-items:center; padding:14px 4px; border-top:1px solid var(--line); background:transparent; cursor:pointer; }
+.lap-row:first-child{ border-top:none; }
+.lap-num{ font-size:12px; color:var(--text-dim2); }
 .lap-title{ font-weight:600; }
-.lap-meta{ font-size:12px; color:var(--text-on-paper-dim); margin-top:2px; }
+.lap-meta{ font-size:12px; color:var(--text-dim2); margin-top:2px; }
 .lap-right{ display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
 .lap-date{ font-size:12.5px; font-weight:600; text-align:right; }
-.lap-weekday{ font-size:11px; color:var(--text-on-paper-dim); text-align:right; margin-top:-4px; }
+.lap-weekday{ font-size:11px; color:var(--text-dim2); text-align:right; margin-top:-4px; }
 .status-pill{
-  font-size:11px; font-weight:600;
-  padding:6px 12px; border-radius:980px; border:1px solid var(--line-on-paper); cursor:pointer; background:var(--paper);
+  font-family:'Barlow Semi Condensed',sans-serif; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.02em;
+  padding:6px 12px; border-radius:980px; border:1px solid var(--line); cursor:pointer; background:transparent; color:var(--text);
 }
-.status-pill[data-status="done"]{ background:#34c759; color:#fff; border-color:#34c759; }
+.status-pill[data-status="done"]{ background:var(--lime); color:var(--lime-ink); border-color:var(--lime); }
 .status-pill[data-status="skipped"]{ color:var(--brick); border-color:var(--brick); background:transparent; }
-.status-pill[data-status="planned"]{ color:var(--cobalt); border-color:var(--cobalt); }
+.status-pill[data-status="planned"]{ color:var(--lime); border-color:var(--lime); }
 
 /* ---- Events / poll (Буду / Не буду) ---- */
 .event-card{ margin-bottom:14px; }
 .event-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:10px; }
-.event-title{ font-weight:700; font-size:16px; }
-.event-when{ font-size:13px; color:var(--text-on-paper-dim); margin-top:2px; }
-.event-organizer{ font-size:12px; color:var(--text-on-paper-dim); margin-top:4px; }
+.event-title{ font-family:'Barlow Semi Condensed',sans-serif; font-weight:800; font-size:17px; text-transform:uppercase; letter-spacing:.01em; }
+.event-when{ font-size:13px; color:var(--text-dim); margin-top:2px; }
+.event-organizer{ font-size:12px; color:var(--text-dim2); margin-top:4px; }
 .rsvp-row{ display:flex; gap:8px; margin-bottom:12px; }
 .rsvp-btn{
-  flex:1; padding:10px; border-radius:14px; border:1px solid var(--line-on-paper);
-  background:var(--paper); font-size:13.5px; font-weight:600; cursor:pointer; color:var(--text-on-paper);
+  flex:1; padding:11px; border-radius:14px; border:1px solid var(--line);
+  background:var(--surface); font-family:'Barlow Semi Condensed',sans-serif; font-size:14px; font-weight:800; text-transform:uppercase; cursor:pointer; color:var(--text);
 }
-.rsvp-btn.going.active{ background:#34c759; border-color:#34c759; color:#fff; }
+.rsvp-btn.going.active{ background:var(--lime); border-color:var(--lime); color:var(--lime-ink); }
 .rsvp-btn.not-going.active{ background:var(--brick); border-color:var(--brick); color:#fff; }
-.rsvp-bar{ height:8px; border-radius:980px; background:var(--brick); overflow:hidden; margin-bottom:8px; }
-.rsvp-bar-fill{ height:100%; background:#34c759; }
-.rsvp-names{ font-size:12px; color:var(--text-on-paper-dim); }
-.rsvp-names b{ color:var(--text-on-paper); font-weight:600; }
+.rsvp-bar{ height:8px; border-radius:980px; background:rgba(255,107,94,0.35); overflow:hidden; margin-bottom:8px; }
+.rsvp-bar-fill{ height:100%; background:var(--lime); }
+.rsvp-names{ font-size:12px; color:var(--text-dim); }
+.rsvp-names b{ color:var(--text); font-weight:600; }
 
 /* ---- Modal (workout details / timer) ---- */
 .modal-overlay{
-  position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:100;
+  position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:100;
   display:flex; align-items:flex-end; justify-content:center;
 }
 .modal-card{
-  background:var(--paper-2); width:100%; max-width:520px;
+  background:var(--surface); width:100%; max-width:520px;
+  border:1px solid var(--line); border-bottom:none;
   border-radius:22px 22px 0 0; padding:24px 20px calc(24px + env(safe-area-inset-bottom));
   max-height:85vh; overflow-y:auto;
 }
-.modal-card h2{ font-size:22px; margin-bottom:4px; }
+.modal-card h2{ font-family:'Barlow Semi Condensed',sans-serif; font-weight:800; font-size:24px; text-transform:uppercase; margin-bottom:4px; }
 .modal-close{
   display:block; margin:0 auto 14px; width:40px; height:5px; border-radius:3px;
-  background:var(--line-on-paper); border:none;
+  background:var(--line-strong); border:none;
 }
 
 /* ---- Workout timer ---- */
 .timer-display{
-  font-family:-apple-system,'SF Pro Display',sans-serif; font-weight:700; font-size:60px;
-  text-align:center; letter-spacing:-0.01em; margin:18px 0 6px;
+  font-family:'Barlow Semi Condensed',sans-serif; font-weight:800; font-size:64px;
+  text-align:center; letter-spacing:.01em; margin:18px 0 6px;
   font-variant-numeric:tabular-nums;
 }
-.timer-now{ text-align:center; color:var(--text-on-paper-dim); font-size:14px; margin-bottom:8px; }
+.timer-now{ text-align:center; color:var(--text-dim); font-size:14px; margin-bottom:8px; }
 .timer-controls{ display:flex; gap:10px; justify-content:center; margin:6px 0 6px; }
 .timer-controls button{ min-width:96px; }
 .time-picker{ overflow-x:auto; -webkit-overflow-scrolling:touch; scroll-snap-type:x mandatory; padding:0 calc(50% - 26px); margin-bottom:4px; scrollbar-width:none; }
 .time-picker::-webkit-scrollbar{ display:none; }
 .time-picker.disabled{ pointer-events:none; opacity:.4; }
 .tp-track{ display:flex; gap:10px; }
-.tp-item{ scroll-snap-align:center; min-width:52px; text-align:center; font-size:20px; font-weight:700; color:var(--text-on-paper-dim); padding:8px 0; }
-.tp-item.active{ color:var(--cobalt); font-size:26px; }
+.tp-item{ scroll-snap-align:center; min-width:52px; text-align:center; font-family:'Barlow Semi Condensed',sans-serif; font-size:22px; font-weight:800; color:var(--text-dim); padding:8px 0; }
+.tp-item.active{ color:var(--lime); font-size:28px; }
 
 /* ---- City chat (bubbles + avatars) ---- */
 .city-row{ display:flex; gap:8px; align-items:flex-end; margin-bottom:12px; }
 .city-row.own{ flex-direction:row-reverse; }
 .avatar{
   width:30px; height:30px; border-radius:50%; flex:0 0 auto; overflow:hidden;
-  background:var(--cobalt); color:#fff; display:flex; align-items:center; justify-content:center;
+  background:#2a2d24; color:var(--lime); display:flex; align-items:center; justify-content:center;
   font-size:13px; font-weight:700;
 }
 .avatar img{ width:100%; height:100%; object-fit:cover; }
+.city-row.own .avatar{ background:var(--lime); color:var(--lime-ink); }
 .city-bubble-wrap{ max-width:74%; }
-.city-who{ font-size:11px; font-weight:600; color:var(--text-on-paper-dim); margin:0 4px 3px; }
+.city-who{ font-size:11px; font-weight:600; color:var(--text-dim); margin:0 4px 3px; }
 .city-row.own .city-who{ text-align:right; }
-.city-bubble{ padding:10px 14px; border-radius:18px; font-size:14.5px; line-height:1.4; background:#e9e9eb; color:var(--text-on-paper); border-bottom-left-radius:6px; }
-.city-row.own .city-bubble{ background:var(--cobalt); color:#fff; border-bottom-right-radius:6px; border-bottom-left-radius:18px; }
+.city-bubble{ padding:10px 14px; border-radius:18px; font-size:14.5px; line-height:1.4; background:var(--surface-2); color:var(--text); border-bottom-left-radius:6px; }
+.city-row.own .city-bubble{ background:var(--lime); color:var(--lime-ink); font-weight:600; border-bottom-right-radius:6px; border-bottom-left-radius:18px; }
 .city-meta-row{ display:flex; align-items:center; gap:8px; margin-top:3px; }
 .city-row.own .city-meta-row{ justify-content:flex-end; }
-.city-username{ font-size:10.5px; color:var(--text-on-paper-dim); }
-.msg-more{ background:none; border:none; color:var(--text-on-paper-dim); font-size:15px; line-height:1; cursor:pointer; padding:2px 4px; }
-.mention{ color:var(--cobalt); font-weight:700; }
-.city-row.own .mention{ color:#dff0ff; }
+.city-username{ font-size:10.5px; color:var(--text-dim2); }
+.msg-more{ background:none; border:none; color:var(--text-dim); font-size:15px; line-height:1; cursor:pointer; padding:2px 4px; }
+.mention{ color:var(--lime); font-weight:700; }
+.city-row.own .mention{ color:var(--lime-ink); }
 
-/* Фото в чате — маленький превью без рамки, как в Телеграме; тап открывает во весь экран */
+/* Фото в чате */
 .chat-photo{ max-width:150px; max-height:190px; border-radius:12px; display:block; cursor:pointer; object-fit:cover; }
 .photo-viewer{ position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; }
 .photo-viewer img{ max-width:100%; max-height:100%; border-radius:12px; }
 
-/* Голосовое сообщение — обычный плеер браузера, без рамки чата вокруг */
+/* Голосовое сообщение */
 .chat-audio{ width:220px; height:38px; display:block; }
 
 /* ---- Profile avatar picker ---- */
 .avatar-picker{ display:flex; align-items:center; gap:16px; margin-bottom:22px; }
 .avatar-big{
-  width:76px; height:76px; border-radius:50%; overflow:hidden; flex:0 0 auto;
-  background:var(--cobalt); color:#fff; display:flex; align-items:center; justify-content:center;
-  font-size:28px; font-weight:700; position:relative;
-  border:3px solid var(--paper-2); box-shadow:0 0 0 1px var(--line-on-paper);
+  width:78px; height:78px; border-radius:50%; overflow:hidden; flex:0 0 auto;
+  background:var(--lime); color:var(--lime-ink); display:flex; align-items:center; justify-content:center;
+  font-family:'Barlow Semi Condensed',sans-serif; font-size:30px; font-weight:800; position:relative;
+  box-shadow:0 0 0 3px rgba(203,251,69,0.4);
 }
 .avatar-big img{ width:100%; height:100%; object-fit:cover; }
 .avatar-badge{
-  position:absolute; right:2px; bottom:2px; width:24px; height:24px; border-radius:50%;
-  background:var(--ink); color:#fff; display:flex; align-items:center; justify-content:center;
-  border:2px solid var(--paper-2);
+  position:absolute; right:-2px; bottom:-2px; width:26px; height:26px; border-radius:50%;
+  background:var(--lime); color:var(--lime-ink); display:flex; align-items:center; justify-content:center;
+  border:2px solid var(--ink);
 }
 .avatar-badge svg{ width:13px; height:13px; }
 
 /* ---- Stats rows ---- */
-.stat-row{ display:flex; justify-content:space-between; padding:12px 0; border-top:1px solid var(--line-on-paper); }
-.stat-row:last-child{ border-bottom:1px solid var(--line-on-paper); }
-.stat-row .v{ font-weight:600; }
+.stat-row{ display:flex; justify-content:space-between; padding:12px 0; border-top:1px solid var(--line); }
+.stat-row:last-child{ border-bottom:1px solid var(--line); }
+.stat-row .v{ font-weight:700; }
 
 .toast{
   position:fixed; left:50%; bottom:138px; transform:translate(-50%,20px);
-  background:rgba(29,29,31,0.92); color:#fff; font-size:13px; font-weight:500;
+  background:rgba(242,244,236,0.95); color:var(--lime-ink); font-size:13px; font-weight:600;
   padding:10px 18px; border-radius:14px;
   opacity:0; pointer-events:none; transition:.3s ease; z-index:99;
 }
 .toast.show{ opacity:1; transform:translate(-50%,0); }
 
 @media (prefers-reduced-motion: reduce){ *{ transition:none !important; animation:none !important; } }
+
+/* ==== Добавлено поверх дизайна PULSE: бейджи, реакции, голосовые с волной, участники ==== */
+
+/* Красный кружок непрочитанного на вкладке таббара */
+.tab-badge{
+  position:absolute; top:2px; right:10px; min-width:16px; height:16px; padding:0 4px;
+  border-radius:999px; background:var(--brick); color:#fff;
+  font-size:10px; font-weight:800; line-height:16px; text-align:center;
+  display:none; align-items:center; justify-content:center;
+  box-shadow:0 0 0 2px var(--surface);
+}
+.tabbar button{ position:relative; }
+
+/* Реакции под сообщением */
+.reaction-row{ display:flex; flex-wrap:wrap; gap:5px; margin-top:5px; }
+.city-row.own .reaction-row{ justify-content:flex-end; }
+.reaction-pill{
+  display:inline-flex; align-items:center; gap:4px; font-size:12px; font-weight:700;
+  background:var(--surface-2); border:1px solid var(--line); border-radius:980px;
+  padding:3px 9px; cursor:pointer; color:var(--text);
+}
+.reaction-pill.mine{ background:rgba(203,251,69,0.16); border-color:var(--lime); color:var(--lime); }
+.reaction-picker{ display:flex; gap:10px; justify-content:space-around; padding:6px 0 4px; }
+.reaction-opt{ background:none; border:none; font-size:28px; cursor:pointer; padding:6px; border-radius:50%; }
+.reaction-opt:active{ background:var(--line); }
+
+/* Голосовое сообщение — плеер с "волной", как в Telegram, без нативных браузерных контролов */
+.voice-msg{
+  display:flex; align-items:center; gap:9px;
+  background:var(--surface-2); color:var(--text);
+  border-radius:18px; border-bottom-left-radius:6px;
+  padding:9px 13px; max-width:220px;
+}
+.city-row.own .voice-msg{ background:var(--lime); color:var(--lime-ink); border-bottom-right-radius:6px; border-bottom-left-radius:18px; }
+.voice-play{
+  width:30px; height:30px; border-radius:50%; border:none; flex:0 0 auto;
+  background:rgba(255,255,255,0.12); color:inherit; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+}
+.city-row.own .voice-play{ background:rgba(18,20,13,0.16); }
+.voice-play svg{ width:14px; height:14px; }
+.voice-wave{ flex:1; display:flex; align-items:center; gap:2px; height:24px; }
+.vbar{ width:2.5px; border-radius:2px; min-height:15%; background:rgba(242,244,236,0.28); }
+.city-row.own .vbar{ background:rgba(18,20,13,0.35); }
+.vbar.played{ background:var(--lime); }
+.city-row.own .vbar.played{ background:var(--lime-ink); }
+.voice-time{ font-size:11px; font-variant-numeric:tabular-nums; opacity:.85; flex:0 0 auto; }
+
+/* Участники общего чата */
+.member-row{ display:flex; align-items:center; gap:12px; padding:10px 0; border-top:1px solid var(--line); }
+.member-row:first-child{ border-top:none; }
+.member-row .name{ font-weight:600; }
+.member-row .username{ font-size:12px; color:var(--text-dim); }
+.join-banner{ text-align:center; padding:26px 16px; }
+.join-banner p{ color:var(--text-dim); font-size:14px; margin-bottom:16px; }

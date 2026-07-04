@@ -6,23 +6,39 @@ const { GLOBAL_CHAT_KEY } = require('../utils/city');
 const router = express.Router();
 router.use(requireAuth);
 
-// Достаёт (и при необходимости создаёт) единый общий чат, в котором состоят все пользователи.
-async function getOrCreateGlobalChat(userId) {
+// Достаёт (и при необходимости создаёт САМ ЧАТ, но не членство) общий чат.
+async function getGlobalChat() {
   const chat = await db.query(
     `INSERT INTO city_chats (city_name) VALUES ($1)
      ON CONFLICT (city_name) DO UPDATE SET city_name=EXCLUDED.city_name RETURNING id, city_name`,
     [GLOBAL_CHAT_KEY]
   );
-  await db.query(
-    'INSERT INTO city_chat_members (chat_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-    [chat.rows[0].id, userId]
-  );
   return chat.rows[0];
 }
 
-// Общий чат для всех зарегистрированных пользователей (не по городам)
+// То же самое, но ещё и вступает пользователя в чат (для действий, где членство обязательно)
+async function getOrCreateGlobalChat(userId) {
+  const chat = await getGlobalChat();
+  await db.query(
+    'INSERT INTO city_chat_members (chat_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+    [chat.id, userId]
+  );
+  return chat;
+}
+
+// Общий чат для всех зарегистрированных пользователей (не по городам).
+// Просмотр доступен всем, но участие ("Вступить") — отдельное явное действие.
 router.get('/city', async (req, res) => {
-  const chat = await getOrCreateGlobalChat(req.userId);
+  const chat = await getGlobalChat();
+
+  const memberRow = await db.query(
+    'SELECT 1 FROM city_chat_members WHERE chat_id=$1 AND user_id=$2',
+    [chat.id, req.userId]
+  );
+  const countRow = await db.query(
+    'SELECT count(*)::int AS c FROM city_chat_members WHERE chat_id=$1',
+    [chat.id]
+  );
 
   const messages = await db.query(
     `SELECT cm.id, cm.content, cm.created_at, cm.user_id, p.name, p.photo_url, u.username
@@ -32,12 +48,45 @@ router.get('/city', async (req, res) => {
       WHERE cm.chat_id=$1 ORDER BY cm.created_at DESC LIMIT 50`,
     [chat.id]
   );
-  res.json({ chat, messages: messages.rows.reverse() });
+  const rows = messages.rows.reverse();
+
+  let reactionsByMsg = {};
+  if (rows.length) {
+    const reactions = await db.query(
+      `SELECT message_id, emoji, count(*)::int AS count, array_agg(user_id) AS user_ids
+         FROM message_reactions WHERE message_id = ANY($1::int[])
+         GROUP BY message_id, emoji`,
+      [rows.map(m => m.id)]
+    );
+    for (const r of reactions.rows) (reactionsByMsg[r.message_id] ||= []).push({ emoji: r.emoji, count: r.count, userIds: r.user_ids });
+  }
+
+  res.json({
+    chat,
+    isMember: memberRow.rows.length > 0,
+    memberCount: countRow.rows[0].c,
+    messages: rows.map(m => ({ ...m, reactions: reactionsByMsg[m.id] || [] }))
+  });
 });
 
 router.post('/city/join', async (req, res) => {
   const chat = await getOrCreateGlobalChat(req.userId);
   res.json({ ok: true, chatId: chat.id });
+});
+
+// Список всех, кто состоит в общем чате
+router.get('/city/members', async (req, res) => {
+  const chat = await getGlobalChat();
+  const rows = await db.query(
+    `SELECT u.username, p.name, p.photo_url
+       FROM city_chat_members ccm
+       JOIN users u ON u.id = ccm.user_id
+       LEFT JOIN profiles p ON p.user_id = u.id
+      WHERE ccm.chat_id=$1
+      ORDER BY ccm.joined_at ASC`,
+    [chat.id]
+  );
+  res.json(rows.rows);
 });
 
 // Пожаловаться на сообщение (минимальная модерация на старте)

@@ -1,8 +1,9 @@
-// Фоновые задачи: напоминания о тренировках, авто-статус "пропущено", напоминания о событиях.
-// В проде на Railway это просто часть того же процесса (работает, пока сервис жив).
+// Фоновые задачи: напоминания о тренировках, авто-статус "пропущено", напоминания о событиях,
+// утренний брифинг от агента. В проде на Railway это часть того же процесса (пока сервис жив).
 const cron = require('node-cron');
 const db = require('./db');
 const push = require('./services/push');
+const agentService = require('./services/agentService');
 
 // Каждый час: смотрим тренировки на сегодня и присылаем разовое напоминание
 async function remindTodayWorkouts() {
@@ -58,6 +59,35 @@ async function remindUpcomingEvents() {
   }
 }
 
+// Раз в сутки в 7 утра (по времени сервера — см. примечание в README про часовой пояс):
+// агент сам пишет каждому пользователю утреннее сообщение — план на день или советы,
+// если тренировки сегодня нет.
+async function sendMorningBriefing() {
+  const users = await db.query('SELECT user_id FROM profiles');
+  for (const { user_id } of users.rows) {
+    try {
+      const todays = await db.query(
+        "SELECT type, difficulty FROM workouts WHERE user_id=$1 AND date=CURRENT_DATE AND status NOT IN ('cancelled','skipped')",
+        [user_id]
+      );
+
+      const instruction = todays.rows.length
+        ? `(Служебная утренняя пометка, пользователь её не видел и не писал.) Сегодня по плану: ` +
+          `${todays.rows.map(w => `${w.type} (сложность: ${w.difficulty})`).join('; ')}. Напиши короткое доброе ` +
+          `утреннее сообщение: поздоровайся, напомни план на сегодня, дай 1-2 практичных совета — что съесть ` +
+          `перед тренировкой и как подготовиться. Живо, тепло, без канцелярита, одно сообщение.`
+        : `(Служебная утренняя пометка, пользователь её не видел и не писал.) Сегодня тренировки по плану нет. ` +
+          `Напиши короткое доброе утреннее сообщение с 1-2 советами по питанию или восстановлению на сегодня. ` +
+          `Живо, тепло, без канцелярита, одно сообщение.`;
+
+      const reply = await agentService.sendMessage(user_id, instruction);
+      await db.query("INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'agent',$2)", [user_id, reply]);
+    } catch (e) {
+      console.error('Ошибка утреннего брифинга для пользователя', user_id, e);
+    }
+  }
+}
+
 function start() {
   cron.schedule('0 * * * *', () => {
     remindTodayWorkouts().catch(e => console.error('remindTodayWorkouts error', e));
@@ -66,7 +96,10 @@ function start() {
   cron.schedule('0 3 * * *', () => {
     autoMarkSkipped().catch(e => console.error('autoMarkSkipped error', e));
   });
-  console.log('Планировщик задач запущен (напоминания раз в час, авто-статусы раз в сутки).');
+  cron.schedule('0 7 * * *', () => {
+    sendMorningBriefing().catch(e => console.error('sendMorningBriefing error', e));
+  });
+  console.log('Планировщик задач запущен (напоминания раз в час, авто-статусы и утренний брифинг раз в сутки).');
 }
 
 module.exports = { start };

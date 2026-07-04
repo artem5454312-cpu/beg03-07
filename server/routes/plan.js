@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const agentService = require('../services/agentService');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -51,26 +52,51 @@ router.patch('/workouts/:id', async (req, res) => {
   const { status } = req.body;
   const allowed = ['planned', 'done', 'skipped', 'cancelled'];
   if (!allowed.includes(status)) return res.status(400).json({ error: 'Некорректный статус.' });
+
+  const before = await db.query('SELECT status FROM workouts WHERE id=$1 AND user_id=$2', [req.params.id, req.userId]);
+  if (!before.rows.length) return res.status(404).json({ error: 'Тренировка не найдена.' });
+  const wasDone = before.rows[0].status === 'done';
+
   const r = await db.query(
     'UPDATE workouts SET status=$1 WHERE id=$2 AND user_id=$3 RETURNING *',
     [status, req.params.id, req.userId]
   );
-  if (!r.rows.length) return res.status(404).json({ error: 'Тренировка не найдена.' });
   res.json(r.rows[0]);
+
+  // Тренировка только что стала "выполнена" (а не была ей раньше) — агент сам
+  // проактивно спросит, как всё прошло. Не блокируем ответ пользователю — делаем в фоне.
+  if (status === 'done' && !wasDone) {
+    triggerWorkoutCheckIn(req.userId, r.rows[0]).catch(e => console.error('Ошибка проверки тренировки агентом:', e));
+  }
 });
+
+async function triggerWorkoutCheckIn(userId, workout) {
+  const instruction = `(Служебная пометка для тебя, пользователь её не видел и не писал: он только что ` +
+    `отметил тренировку "${workout.type}" за ${workout.date} как выполненную через приложение, не в чате.) ` +
+    `Проактивно, одним коротким сообщением поинтересуйся, как всё прошло: самочувствие, что получалось, ` +
+    `что было тяжело. Будь тёплым, живым и поддерживающим, коротко похвали за то, что довёл до конца. ` +
+    `Не занудствуй, не растягивай, без канцелярита — как хороший друг-тренер, а не бот с чек-листом.`;
+  const reply = await agentService.sendMessage(userId, instruction);
+  await db.query("INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'agent',$2)", [userId, reply]);
+}
 
 // Прикрепить результат / файл к тренировке
 router.post('/workouts/:id/result', async (req, res) => {
   const { notes, metrics, file_url } = req.body;
-  const owns = await db.query('SELECT id FROM workouts WHERE id=$1 AND user_id=$2', [req.params.id, req.userId]);
+  const owns = await db.query('SELECT id, status FROM workouts WHERE id=$1 AND user_id=$2', [req.params.id, req.userId]);
   if (!owns.rows.length) return res.status(404).json({ error: 'Тренировка не найдена.' });
+  const wasDone = owns.rows[0].status === 'done';
 
   const r = await db.query(
     'INSERT INTO workout_results (workout_id, notes, metrics, file_url) VALUES ($1,$2,$3,$4) RETURNING *',
     [req.params.id, notes || null, metrics || null, file_url || null]
   );
-  await db.query("UPDATE workouts SET status='done' WHERE id=$1", [req.params.id]);
+  const w = await db.query("UPDATE workouts SET status='done' WHERE id=$1 RETURNING *", [req.params.id]);
   res.json(r.rows[0]);
+
+  if (!wasDone) {
+    triggerWorkoutCheckIn(req.userId, w.rows[0]).catch(e => console.error('Ошибка проверки тренировки агентом:', e));
+  }
 });
 
 // Карточка сверху экрана "План": заголовок и текст плана, которые задаёт агент,

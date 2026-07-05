@@ -559,14 +559,14 @@ async function viewPlan() {
   renderShell('plan');
   const main = document.getElementById('main');
   main.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:baseline;">
-      <h1 class="display screen-title">План</h1>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;">
+      <h1 class="display screen-title" style="margin-bottom:0;">План</h1>
       <button class="btn" id="addBtn">+ Добавить</button>
     </div>
-    <p class="screen-sub">Общая цель, логика плана и питание — наглядно.</p>
-    <div id="goalHero"></div>
     <div id="weekStrip"></div>
-    <div id="blocks"></div>`;
+    <div id="goalHero"></div>
+    <div id="blocks"></div>
+    <div id="goalExtra"></div>`;
 
   let cachedGoals = [];
 
@@ -606,7 +606,7 @@ async function viewPlan() {
       const maxw = Math.max(1, ...idxs.map(i => weeks[i]));
       const curWeek = Math.floor(daysBetweenStr(firstDate, today) / 7);
       weeklyBars = idxs.map(i => {
-        const h = Math.max(8, Math.round(weeks[i] / maxw * 64));
+        const h = Math.max(6, Math.round(weeks[i] / maxw * 40));
         const isCur = i === curWeek;
         return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">
           <div style="width:100%;height:${h}px;background:${isCur ? '#cbfb45' : 'rgba(203,251,69,0.3)'};border-radius:4px 4px 0 0;"></div>
@@ -619,43 +619,43 @@ async function viewPlan() {
 
     const heroInfographics = total ? `
       <!-- Логика плана -->
-      <div class="card" style="border-radius:18px;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+      <div class="card" style="border-radius:16px;padding:15px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
           <span style="width:3px;height:15px;border-radius:2px;background:#cbfb45;"></span>
           <span class="display" style="font-size:15px;">Логика плана</span>
         </div>
-        <div style="display:flex;gap:8px;margin-bottom:20px;">
-          <div style="flex:1;background:rgba(203,251,69,0.1);border:1px solid rgba(203,251,69,0.25);border-radius:14px;padding:13px 8px;text-align:center;"><div class="display" style="font-size:24px;color:#cbfb45;">${dpct('easy')}%</div><div style="font-size:11px;color:var(--text-dim);margin-top:5px;">Лёгкие</div></div>
-          <div style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--line);border-radius:14px;padding:13px 8px;text-align:center;"><div class="display" style="font-size:24px;color:rgba(242,244,236,0.85);">${dpct('medium')}%</div><div style="font-size:11px;color:var(--text-dim);margin-top:5px;">Средние</div></div>
-          <div style="flex:1;background:rgba(255,183,77,0.1);border:1px solid rgba(255,183,77,0.25);border-radius:14px;padding:13px 8px;text-align:center;"><div class="display" style="font-size:24px;color:var(--amber);">${dpct('hard')}%</div><div style="font-size:11px;color:var(--text-dim);margin-top:5px;">Тяжёлые</div></div>
+        <div style="display:flex;gap:8px;margin-bottom:14px;">
+          <div style="flex:1;background:rgba(203,251,69,0.1);border:1px solid rgba(203,251,69,0.25);border-radius:13px;padding:9px 6px;text-align:center;"><div class="display" style="font-size:20px;color:#cbfb45;">${dpct('easy')}%</div><div style="font-size:10.5px;color:var(--text-dim);margin-top:2px;">Лёгкие</div></div>
+          <div style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--line);border-radius:13px;padding:9px 6px;text-align:center;"><div class="display" style="font-size:20px;color:rgba(242,244,236,0.85);">${dpct('medium')}%</div><div style="font-size:10.5px;color:var(--text-dim);margin-top:2px;">Средние</div></div>
+          <div style="flex:1;background:rgba(255,183,77,0.1);border:1px solid rgba(255,183,77,0.25);border-radius:13px;padding:9px 6px;text-align:center;"><div class="display" style="font-size:20px;color:var(--amber);">${dpct('hard')}%</div><div style="font-size:10.5px;color:var(--text-dim);margin-top:2px;">Тяжёлые</div></div>
         </div>
         <div class="summary-label">Из чего состоит нагрузка</div>
-        <div style="display:flex;flex-direction:column;gap:12px;margin-top:8px;">
+        <div style="display:flex;flex-direction:column;gap:9px;margin-top:8px;">
           <div><div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;"><span>Бег</span><b style="font-weight:700;">${tpct('Бег')}%</b></div><div style="height:9px;border-radius:999px;background:rgba(255,255,255,0.07);overflow:hidden;"><div style="width:${tpct('Бег')}%;height:100%;background:#cbfb45;border-radius:999px;"></div></div></div>
           <div><div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;"><span>Сила</span><b style="font-weight:700;">${tpct('Сила')}%</b></div><div style="height:9px;border-radius:999px;background:rgba(255,255,255,0.07);overflow:hidden;"><div style="width:${tpct('Сила')}%;height:100%;background:var(--blue);border-radius:999px;"></div></div></div>
           <div><div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;"><span>Восстановление</span><b style="font-weight:700;">${tpct('Восстановление')}%</b></div><div style="height:9px;border-radius:999px;background:rgba(255,255,255,0.07);overflow:hidden;"><div style="width:${tpct('Восстановление')}%;height:100%;background:rgba(242,244,236,0.4);border-radius:999px;"></div></div></div>
         </div>
         ${weeklyBars ? `
-          <div class="summary-label" style="margin-top:20px;">Тренировок по неделям</div>
-          <div style="display:flex;align-items:flex-end;gap:5px;height:70px;margin-top:8px;">${weeklyBars}</div>` : ''}
+          <div class="summary-label" style="margin-top:14px;">Тренировок по неделям</div>
+          <div style="display:flex;align-items:flex-end;gap:5px;height:46px;margin-top:8px;">${weeklyBars}</div>` : ''}
         ${logic ? `<div class="summary-box" style="margin-top:18px;margin-bottom:0;"><div class="summary-label">Комментарий тренера</div>${formatAgentText(logic)}</div>` : ''}
       </div>
 
       <!-- Питание -->
-      <div class="card" style="border-radius:18px;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+      <div class="card" style="border-radius:16px;padding:15px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
           <span style="width:3px;height:15px;border-radius:2px;background:var(--blue);"></span>
           <span class="display" style="font-size:15px;">Питание</span>
         </div>
         <div style="display:flex;gap:10px;">
-          <div style="flex:1;background:rgba(122,182,255,0.08);border:1px solid rgba(122,182,255,0.25);border-radius:14px;padding:13px;">
+          <div style="flex:1;background:rgba(122,182,255,0.08);border:1px solid rgba(122,182,255,0.25);border-radius:14px;padding:11px;">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;">
               <span style="width:28px;height:28px;border-radius:50%;background:rgba(122,182,255,0.16);display:flex;align-items:center;justify-content:center;flex:0 0 auto;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7ab6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg></span>
               <div class="display" style="font-size:12px;color:#7ab6ff;">До · за 1.5–2 ч</div>
             </div>
             <div style="font-size:13px;line-height:1.5;color:#dfe3d6;">Овсянка + банан.<br>Медленные углеводы для энергии.</div>
           </div>
-          <div style="flex:1;background:rgba(203,251,69,0.08);border:1px solid rgba(203,251,69,0.25);border-radius:14px;padding:13px;">
+          <div style="flex:1;background:rgba(203,251,69,0.08);border:1px solid rgba(203,251,69,0.25);border-radius:14px;padding:11px;">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;">
               <span style="width:28px;height:28px;border-radius:50%;background:rgba(203,251,69,0.16);display:flex;align-items:center;justify-content:center;flex:0 0 auto;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#cbfb45" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L5 13h6l-1 9 9-12h-7z"></path></svg></span>
               <div class="display" style="font-size:12px;color:#cbfb45;">После · 30 мин</div>
@@ -663,17 +663,17 @@ async function viewPlan() {
             <div style="font-size:13px;line-height:1.5;color:#dfe3d6;">Творог / курица + рис.<br>Белок + углеводы для восстановления.</div>
           </div>
         </div>
-        <div style="display:flex;flex-direction:column;margin-top:14px;">
-          <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line);">
-            <span style="width:30px;height:30px;border-radius:50%;background:rgba(122,182,255,0.14);display:flex;align-items:center;justify-content:center;flex:0 0 auto;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7ab6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s6 6.4 6 11a6 6 0 0 1-12 0c0-4.6 6-11 6-11z"></path></svg></span>
+        <div style="display:flex;flex-direction:column;margin-top:10px;">
+          <div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--line);">
+            <span style="width:28px;height:28px;border-radius:50%;background:rgba(122,182,255,0.14);display:flex;align-items:center;justify-content:center;flex:0 0 auto;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7ab6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s6 6.4 6 11a6 6 0 0 1-12 0c0-4.6 6-11 6-11z"></path></svg></span>
             <div style="font-size:13.5px;">Вода — <b style="font-weight:700;">2.5 л</b> в день, больше в дни бега</div>
           </div>
-          <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line);">
-            <span style="width:30px;height:30px;border-radius:50%;background:rgba(203,251,69,0.14);display:flex;align-items:center;justify-content:center;flex:0 0 auto;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#cbfb45" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="8" height="8" rx="1"></rect><path d="M6.5 6.5l11 11M4 9l2-2M18 15l2 2M9 4l-2 2M15 18l2 2"></path></svg></span>
+          <div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--line);">
+            <span style="width:28px;height:28px;border-radius:50%;background:rgba(203,251,69,0.14);display:flex;align-items:center;justify-content:center;flex:0 0 auto;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#cbfb45" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="8" height="8" rx="1"></rect><path d="M6.5 6.5l11 11M4 9l2-2M18 15l2 2M9 4l-2 2M15 18l2 2"></path></svg></span>
             <div style="font-size:13.5px;">Белок — <b style="font-weight:700;">1.6 г</b> на кг веса в сутки</div>
           </div>
-          <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line);">
-            <span style="width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;flex:0 0 auto;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(242,244,236,0.7)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14a8 8 0 1 1-9-11 6 6 0 0 0 9 11z"></path></svg></span>
+          <div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--line);">
+            <span style="width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;flex:0 0 auto;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(242,244,236,0.7)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14a8 8 0 1 1-9-11 6 6 0 0 0 9 11z"></path></svg></span>
             <div style="font-size:13.5px;">Сон <b style="font-weight:700;">8 ч</b> — база восстановления</div>
           </div>
         </div>
@@ -681,30 +681,30 @@ async function viewPlan() {
       </div>
     ` : '';
 
-    return `
+    const topHtml = `
       <!-- ЦЕЛЬ -->
-      <div style="background:linear-gradient(150deg,#cbfb45,#a8e02f);color:#12140d;border-radius:22px;padding:22px 20px;margin-bottom:14px;box-shadow:0 20px 44px -22px rgba(203,251,69,0.5);">
-        <div class="display" style="font-size:11px;letter-spacing:.1em;opacity:.65;">Общая цель</div>
-        <div class="display" style="font-size:28px;line-height:1;margin:8px 0 4px;">${escapeHtml(g.title || 'Общая цель')}</div>
-        <div style="font-size:12.5px;opacity:.7;margin-bottom:16px;">${g.workouts.length ? `${g.workouts[0].date.slice(0,10)} → ${g.workouts[g.workouts.length-1].date.slice(0,10)}` : 'план ещё формируется'}</div>
-        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px;">
-          <span class="display" style="font-size:40px;line-height:0.8;">${pct}<span style="font-size:22px;">%</span></span>
-          <span style="font-size:12.5px;font-weight:700;opacity:.75;">${done} из ${total} тренировок</span>
+      <div style="background:linear-gradient(150deg,#cbfb45,#a8e02f);color:#12140d;border-radius:18px;padding:15px 16px;margin-bottom:10px;box-shadow:0 16px 34px -22px rgba(203,251,69,0.5);">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+          <div style="min-width:0;">
+            <div class="display" style="font-size:10.5px;letter-spacing:.1em;opacity:.65;">Общая цель</div>
+            <div class="display" style="font-size:21px;line-height:1.02;margin:4px 0 3px;">${escapeHtml(g.title || 'Общая цель')}</div>
+            <div style="font-size:12px;opacity:.7;">${g.workouts.length ? `${g.workouts[0].date.slice(0,10)} → ${g.workouts[g.workouts.length-1].date.slice(0,10)}` : 'план ещё формируется'}</div>
+          </div>
+          <div class="display" style="font-size:32px;line-height:0.8;flex:0 0 auto;">${pct}<span style="font-size:17px;">%</span></div>
         </div>
-        <div style="height:12px;border-radius:999px;background:rgba(18,20,13,0.18);overflow:hidden;">
+        <div style="height:9px;border-radius:999px;background:rgba(18,20,13,0.18);overflow:hidden;margin-top:12px;">
           <div style="width:${pct}%;height:100%;background:#12140d;border-radius:999px;"></div>
         </div>
       </div>
 
       ${total ? `
-      <div style="display:flex;gap:10px;margin-bottom:14px;">
-        <div class="card" style="flex:1;margin-bottom:0;padding:15px 12px;text-align:center;border-radius:16px;"><div class="display" style="font-size:28px;">${daysLeft}</div><div style="font-size:11px;color:var(--text-dim);margin-top:4px;">дней до финиша</div></div>
-        <div class="card" style="flex:1;margin-bottom:0;padding:15px 12px;text-align:center;border-radius:16px;"><div class="display" style="font-size:28px;">${done}</div><div style="font-size:11px;color:var(--text-dim);margin-top:4px;">выполнено</div></div>
-        <div class="card" style="flex:1;margin-bottom:0;padding:15px 12px;text-align:center;border-radius:16px;"><div class="display" style="font-size:28px;">${remaining}</div><div style="font-size:11px;color:var(--text-dim);margin-top:4px;">осталось</div></div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <div class="card" style="flex:1;margin-bottom:0;padding:11px 8px;text-align:center;border-radius:14px;"><div class="display" style="font-size:22px;">${daysLeft}</div><div style="font-size:10.5px;color:var(--text-dim);margin-top:2px;">дней до финиша</div></div>
+        <div class="card" style="flex:1;margin-bottom:0;padding:11px 8px;text-align:center;border-radius:14px;"><div class="display" style="font-size:22px;">${done}</div><div style="font-size:10.5px;color:var(--text-dim);margin-top:2px;">выполнено</div></div>
+        <div class="card" style="flex:1;margin-bottom:0;padding:11px 8px;text-align:center;border-radius:14px;"><div class="display" style="font-size:22px;">${remaining}</div><div style="font-size:10.5px;color:var(--text-dim);margin-top:2px;">осталось</div></div>
       </div>` : ''}
-
-      ${heroInfographics}
     `;
+    return { top: topHtml, extra: heroInfographics };
   }
 
   /* ---------- Недельная полоска-календарь (без изменений) ---------- */
@@ -749,20 +749,23 @@ async function viewPlan() {
 
     if (!goals.length) {
       document.getElementById('goalHero').innerHTML = '';
+      document.getElementById('goalExtra').innerHTML = '';
       document.getElementById('weekStrip').innerHTML = '';
       document.getElementById('blocks').innerHTML = '<p class="screen-sub">Пока нет ни одного плана — напиши агенту, и он его составит.</p>';
       return;
     }
 
     const activeGoal = goals.find(g => g.status === 'active') || goals[0];
-    document.getElementById('goalHero').innerHTML = renderGoalHero(activeGoal);
+    const hero = renderGoalHero(activeGoal);
+    document.getElementById('goalHero').innerHTML = hero.top;
+    document.getElementById('goalExtra').innerHTML = hero.extra;
     renderWeekStrip(goals);
 
     const box = document.getElementById('blocks');
     box.innerHTML = goals.map(g => {
       const done = g.workouts.filter(w => w.status === 'done').length;
       return `
-      <div class="card plan-block ${g.status === 'archived' ? 'archived' : ''}" data-goal="${g.id}" style="border-radius:18px;">
+      <div class="card plan-block ${g.status === 'archived' ? 'archived' : ''}" data-goal="${g.id}" style="border-radius:16px;padding:6px 16px 10px;">
         <div class="plan-block-head">
           <div class="info">
             <div class="eyebrow">${g.status === 'active' ? 'Тренировки цели' : 'Архив'} · ${escapeHtml(g.title || 'Общая цель')}</div>
@@ -798,7 +801,6 @@ async function viewPlan() {
     box.querySelectorAll('.status-pill').forEach(btn => {
       btn.onclick = async (e) => {
         e.stopPropagation();
-        haptic(HAPTIC.select);
         const next = nextStatus(btn.dataset.status);
         await Api.patch('/plan/workouts/' + btn.dataset.id, { status: next });
         load();
@@ -964,7 +966,7 @@ async function viewPlan() {
         </button>
       `;
       document.body.appendChild(lock);
-      attachHoldToConfirm(document.getElementById('unlockBtn'), 1200, () => { haptic(HAPTIC.unlock); lock.remove(); });
+      attachHoldToConfirm(document.getElementById('unlockBtn'), 1200, () => lock.remove());
     }
 
     overlay.querySelector('#gpsLock').onclick = openLockScreen;

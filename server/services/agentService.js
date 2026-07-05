@@ -59,6 +59,17 @@ set_plan_summary с пометкой, что это первый блок, и я
 используй update_workout, а НЕ create_workout. create_workout — только для тренировок,
 которых ещё нет в плане.
 
+ГЛАВНОЕ ПРАВИЛО ПРОТИВ ДУБЛЕЙ: на одну дату должна быть ОДНА тренировка одного типа
+нагрузки (например, одна силовая на низ тела на понедельник, а не три почти одинаковых
+записи с разными формулировками). Если пользователь по ходу разговора добавляет ещё
+упражнение к уже обсуждённой тренировке ("добавь ещё хип-трэст", "и жим ногами тоже") —
+это ОДНО обновление уже существующей записи через update_workout (впиши все упражнения
+в один type через запятую), а НЕ новый create_workout. Если не уверен, есть ли уже
+тренировка на нужную дату — сначала вызови list_workouts и посмотри, что там есть, и
+только потом решай, update_workout это или create_workout. Исключение — если на дату
+реально две РАЗНЫЕ тренировки (например утренняя пробежка и вечерняя силовая) — это
+можно оставить двумя записями, это не дубли.
+
 ЕСЛИ ПОЛЬЗОВАТЕЛЬ ПРОСИТ СОЗДАТЬ СОБЫТИЕ/СБОР/СОВМЕСТНУЮ ТРЕНИРОВКУ в общем чате
 (например "создай событие сегодня в 12:00", "давай соберём пробежку в субботу") — вызови
 create_event с названием и датой/временем в формате YYYY-MM-DDTHH:MM. Это отдельное от
@@ -144,6 +155,11 @@ const tools = [
       },
       required: ['notes']
     }
+  },
+  {
+    name: 'list_workouts',
+    description: 'Посмотреть уже существующие тренировки пользователя (ближайшие ~60 дней) — дата, описание, сложность, статус. Обязательно вызывай перед тем как добавлять/менять тренировки на дни, где что-то уже может быть, чтобы не создать дубликат.',
+    input_schema: { type: 'object', properties: {} }
   },
   {
     name: 'set_plan_summary',
@@ -261,6 +277,16 @@ async function executeTool(userId, name, input) {
     if (!upd.rows.length) return { ok: false, error: 'Тренировка не найдена' };
     await db.query('INSERT INTO workout_results (workout_id, notes) VALUES ($1,$2)', [workoutId, input.notes]);
     return { ok: true };
+  }
+
+  if (name === 'list_workouts') {
+    const r = await db.query(
+      `SELECT id, date, type, difficulty, status FROM workouts
+        WHERE user_id=$1 AND date >= CURRENT_DATE - INTERVAL '3 days'
+        ORDER BY date ASC LIMIT 80`,
+      [userId]
+    );
+    return { ok: true, workouts: r.rows };
   }
 
   if (name === 'set_plan_summary') {

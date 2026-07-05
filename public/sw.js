@@ -18,19 +18,19 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET' || e.request.url.includes('/api/')) return;
 
-  // Главную страницу (и вообще любую навигацию) всегда берём из сети первой —
-  // чтобы новый деплой сразу было видно, а не показывать старую версию из кеша.
-  // Кешируем только как запасной вариант на случай отсутствия интернета.
-  if (e.request.mode === 'navigate') {
-    e.respondWith(
-      fetch(e.request).catch(() => caches.match('/index.html').then(r => r || caches.match('/')))
-    );
-    return;
-  }
-
-  // Статику (css/js/manifest) — сначала из кеша, для скорости
+  // Сеть — всегда в приоритете (и страница, и JS/CSS), кеш — только подстраховка на
+  // случай отсутствия интернета. Так любое обновление видно сразу при следующем открытии,
+  // без ручной очистки кеша браузера.
   e.respondWith(
-    caches.match(e.request).then((cached) => cached || fetch(e.request))
+    fetch(e.request)
+      .then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+        return res;
+      })
+      .catch(() =>
+        caches.match(e.request).then((cached) => cached || (e.request.mode === 'navigate' ? caches.match('/') : undefined))
+      )
   );
 });
 

@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS event_participants (
   PRIMARY KEY (event_id, user_id)
 );
 ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS response TEXT NOT NULL DEFAULT 'going';
+ALTER TABLE events ADD COLUMN IF NOT EXISTS photo_url TEXT;
 
 CREATE TABLE IF NOT EXISTS direct_chats (
   id SERIAL PRIMARY KEY,

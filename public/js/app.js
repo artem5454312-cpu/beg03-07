@@ -10,6 +10,20 @@ function showToast(text) {
   setTimeout(() => t.classList.remove('show'), 2500);
 }
 
+// Тактильная отдача (вибрация). На iOS Safari API вибрации не поддерживается вообще —
+// это ограничение самого iOS, а не наше; на Android и в большинстве других браузеров работает.
+function haptic(pattern = 10) {
+  try { navigator.vibrate?.(pattern); } catch {}
+}
+const HAPTIC = {
+  tap: 8,           // лёгкое касание — обычные кнопки
+  select: 15,        // выбор/переключение — статус, вкладка
+  success: [12, 40, 12], // успех — отправлено, сохранено
+  reaction: 20,       // реакция на сообщение
+  warning: [20, 60, 20, 60, 20], // ошибка / предупреждение
+  unlock: [10, 30, 10, 30, 40]   // разблокировка экрана тренировки
+};
+
 function showModal(innerHtml) {
   closeModal();
   const overlay = document.createElement('div');
@@ -36,6 +50,7 @@ function attachHoldToConfirm(btn, ms, onConfirm) {
     held = true;
     btn.classList.add('holding');
     btn.style.setProperty('--hold-ms', ms + 'ms');
+    haptic(HAPTIC.tap);
     timer = setTimeout(() => { if (held) onConfirm(); }, ms);
   }
   function cancel() {
@@ -125,10 +140,13 @@ const TAB_ICONS = {
 
 function renderShell(activeTab) {
   const tabs = ['agent', 'plan', 'chats', 'profile'];
+  const topRightHtml = activeTab === 'agent'
+    ? `<button class="btn ghost" id="topNewGoalBtn" style="padding:6px 10px;">+ Новая цель</button>`
+    : `<button class="btn ghost" id="logoutBtn" style="padding:6px 10px;">Выйти</button>`;
   document.getElementById('app').innerHTML = `
     <div class="topbar">
       <span class="mark">PULSE</span>
-      <button class="btn ghost" id="logoutBtn" style="padding:6px 10px;">Выйти</button>
+      ${topRightHtml}
     </div>
     <main id="main"></main>
     <div class="tabbar">
@@ -141,12 +159,14 @@ function renderShell(activeTab) {
   `;
   document.querySelectorAll('.tabbar button').forEach(b => {
     if (b.dataset.tab === activeTab) b.classList.add('active');
-    b.onclick = () => location.hash = '#/' + b.dataset.tab;
+    b.onclick = () => { haptic(HAPTIC.tap); location.hash = '#/' + b.dataset.tab; };
   });
-  document.getElementById('logoutBtn').onclick = async () => {
-    await Api.post('/auth/logout');
-    location.hash = '#/login';
-  };
+  if (activeTab !== 'agent') {
+    document.getElementById('logoutBtn').onclick = async () => {
+      await Api.post('/auth/logout');
+      location.hash = '#/login';
+    };
+  }
   applyBadges();
   startUnreadPolling();
 }
@@ -283,6 +303,7 @@ function attachPressHoldRecorder(btn, { isEnabled, onDone, maxMs = 60000 }) {
     active = true;
     startedAt = Date.now();
     btn.classList.add('recording');
+    haptic(HAPTIC.select);
     maxTimer = setTimeout(stop, maxMs);
   }
 
@@ -294,7 +315,10 @@ function attachPressHoldRecorder(btn, { isEnabled, onDone, maxMs = 60000 }) {
     const duration = Date.now() - startedAt;
     mediaRecorder.onstop = () => {
       stream.getTracks().forEach(t => t.stop());
-      if (duration < 400) return;
+      // Меньше секунды — почти наверняка случайное касание (например, через карман),
+      // а не осознанная запись. Молча игнорируем, не тревожим ни транскрибацию, ни агента.
+      if (duration < 1000) return;
+      haptic(HAPTIC.success);
       onDone(new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' }));
     };
     mediaRecorder.stop();
@@ -328,6 +352,7 @@ function setupComposer({ textarea, micSendBtn, onSend, onVoice }) {
 
   micSendBtn.addEventListener('click', () => {
     if (!hasText()) return; // в режиме микрофона клик ничего не делает — только зажатие
+    haptic(HAPTIC.tap);
     const content = textarea.value.trim();
     textarea.value = '';
     updateIcon();
@@ -347,7 +372,6 @@ async function viewAgent() {
   const main = document.getElementById('main');
   main.innerHTML = `
     <div class="chat-toolbar">
-      <button id="newGoal">+ Новая цель</button>
       <button id="clearChat">Очистить диалог</button>
     </div>
     <div class="chat-log" id="log"></div>
@@ -454,7 +478,7 @@ async function viewAgent() {
     }
   });
 
-  document.getElementById('newGoal').onclick = async () => {
+  document.getElementById('topNewGoalBtn').onclick = async () => {
     await Api.post('/agent/new-goal', {});
     showToast('Начинаем новую цель');
     loadHistory();
@@ -516,6 +540,21 @@ function guessMinutes(typeText) {
   return 30;
 }
 
+// Грубая категоризация типа тренировки для диаграммы «из чего состоит нагрузка».
+function categorizeType(t) {
+  const s = String(t).toLowerCase();
+  if (/сил|зал|штанг|присед|отжим|планк|пресс|турник|гант|берпи|выпад/.test(s)) return 'Сила';
+  if (/восстанов|растяж|йог|отдых|заминк|мобил|прогулк|плавани/.test(s)) return 'Восстановление';
+  return 'Бег';
+}
+
+// Целочисленная разница в днях между двумя датами-строками (YYYY-MM-DD), без часовых поясов.
+function daysBetweenStr(a, b) {
+  const [ay, am, ad] = a.split('-').map(Number);
+  const [by, bm, bd] = b.split('-').map(Number);
+  return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86400000);
+}
+
 async function viewPlan() {
   renderShell('plan');
   const main = document.getElementById('main');
@@ -524,20 +563,156 @@ async function viewPlan() {
       <h1 class="display screen-title">План</h1>
       <button class="btn" id="addBtn">+ Добавить</button>
     </div>
-    <p class="screen-sub">Тренировки собраны блоками — по каждой цели свой набор.</p>
+    <p class="screen-sub">Общая цель, логика плана и питание — наглядно.</p>
+    <div id="goalHero"></div>
     <div id="weekStrip"></div>
     <div id="blocks"></div>`;
 
   let cachedGoals = [];
 
+  /* ---------- Хиро активной цели + инфографика ---------- */
+
+  function renderGoalHero(g) {
+    const total = g.workouts.length;
+    const done = g.workouts.filter(w => w.status === 'done').length;
+    const pct = total ? Math.round(done / total * 100) : 0;
+    const remaining = total - done;
+
+    const today = mskDateStr();
+    const dates = g.workouts.map(w => w.date.slice(0, 10)).sort();
+    const firstDate = dates[0];
+    const lastDate = dates[dates.length - 1];
+    const daysLeft = lastDate ? Math.max(0, daysBetweenStr(today, lastDate)) : 0;
+
+    // Баланс сложности
+    const dc = { easy: 0, medium: 0, hard: 0 };
+    g.workouts.forEach(w => { if (dc[w.difficulty] != null) dc[w.difficulty]++; else dc.medium++; });
+    const dpct = k => total ? Math.round(dc[k] / total * 100) : 0;
+
+    // Из чего состоит нагрузка
+    const tc = { 'Бег': 0, 'Сила': 0, 'Восстановление': 0 };
+    g.workouts.forEach(w => { tc[categorizeType(w.type)]++; });
+    const tpct = k => total ? Math.round(tc[k] / total * 100) : 0;
+
+    // Тренировок по неделям (реальный график объёма — по числу тренировок в неделю)
+    let weeklyBars = '';
+    if (firstDate) {
+      const weeks = {};
+      g.workouts.forEach(w => {
+        const wi = Math.floor(daysBetweenStr(firstDate, w.date.slice(0, 10)) / 7);
+        weeks[wi] = (weeks[wi] || 0) + 1;
+      });
+      const idxs = Object.keys(weeks).map(Number).sort((a, b) => a - b);
+      const maxw = Math.max(1, ...idxs.map(i => weeks[i]));
+      const curWeek = Math.floor(daysBetweenStr(firstDate, today) / 7);
+      weeklyBars = idxs.map(i => {
+        const h = Math.max(8, Math.round(weeks[i] / maxw * 64));
+        const isCur = i === curWeek;
+        return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">
+          <div style="width:100%;height:${h}px;background:${isCur ? '#cbfb45' : 'rgba(203,251,69,0.3)'};border-radius:4px 4px 0 0;"></div>
+          ${isCur ? '<div style="font-size:9px;color:#cbfb45;margin-top:3px;font-weight:700;">сейчас</div>' : ''}
+        </div>`;
+      }).join('');
+    }
+
+    const { logic, nutrition } = splitPlanSummary(g.description);
+
+    const heroInfographics = total ? `
+      <!-- Логика плана -->
+      <div class="card" style="border-radius:18px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+          <span style="width:3px;height:15px;border-radius:2px;background:#cbfb45;"></span>
+          <span class="display" style="font-size:15px;">Логика плана</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:20px;">
+          <div style="flex:1;background:rgba(203,251,69,0.1);border:1px solid rgba(203,251,69,0.25);border-radius:14px;padding:13px 8px;text-align:center;"><div class="display" style="font-size:24px;color:#cbfb45;">${dpct('easy')}%</div><div style="font-size:11px;color:var(--text-dim);margin-top:5px;">Лёгкие</div></div>
+          <div style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--line);border-radius:14px;padding:13px 8px;text-align:center;"><div class="display" style="font-size:24px;color:rgba(242,244,236,0.85);">${dpct('medium')}%</div><div style="font-size:11px;color:var(--text-dim);margin-top:5px;">Средние</div></div>
+          <div style="flex:1;background:rgba(255,183,77,0.1);border:1px solid rgba(255,183,77,0.25);border-radius:14px;padding:13px 8px;text-align:center;"><div class="display" style="font-size:24px;color:var(--amber);">${dpct('hard')}%</div><div style="font-size:11px;color:var(--text-dim);margin-top:5px;">Тяжёлые</div></div>
+        </div>
+        <div class="summary-label">Из чего состоит нагрузка</div>
+        <div style="display:flex;flex-direction:column;gap:12px;margin-top:8px;">
+          <div><div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;"><span>Бег</span><b style="font-weight:700;">${tpct('Бег')}%</b></div><div style="height:9px;border-radius:999px;background:rgba(255,255,255,0.07);overflow:hidden;"><div style="width:${tpct('Бег')}%;height:100%;background:#cbfb45;border-radius:999px;"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;"><span>Сила</span><b style="font-weight:700;">${tpct('Сила')}%</b></div><div style="height:9px;border-radius:999px;background:rgba(255,255,255,0.07);overflow:hidden;"><div style="width:${tpct('Сила')}%;height:100%;background:var(--blue);border-radius:999px;"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;"><span>Восстановление</span><b style="font-weight:700;">${tpct('Восстановление')}%</b></div><div style="height:9px;border-radius:999px;background:rgba(255,255,255,0.07);overflow:hidden;"><div style="width:${tpct('Восстановление')}%;height:100%;background:rgba(242,244,236,0.4);border-radius:999px;"></div></div></div>
+        </div>
+        ${weeklyBars ? `
+          <div class="summary-label" style="margin-top:20px;">Тренировок по неделям</div>
+          <div style="display:flex;align-items:flex-end;gap:5px;height:70px;margin-top:8px;">${weeklyBars}</div>` : ''}
+        ${logic ? `<div class="summary-box" style="margin-top:18px;margin-bottom:0;"><div class="summary-label">Комментарий тренера</div>${formatAgentText(logic)}</div>` : ''}
+      </div>
+
+      <!-- Питание -->
+      <div class="card" style="border-radius:18px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+          <span style="width:3px;height:15px;border-radius:2px;background:var(--blue);"></span>
+          <span class="display" style="font-size:15px;">Питание</span>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <div style="flex:1;background:rgba(122,182,255,0.08);border:1px solid rgba(122,182,255,0.25);border-radius:14px;padding:13px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;">
+              <span style="width:28px;height:28px;border-radius:50%;background:rgba(122,182,255,0.16);display:flex;align-items:center;justify-content:center;flex:0 0 auto;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7ab6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg></span>
+              <div class="display" style="font-size:12px;color:#7ab6ff;">До · за 1.5–2 ч</div>
+            </div>
+            <div style="font-size:13px;line-height:1.5;color:#dfe3d6;">Овсянка + банан.<br>Медленные углеводы для энергии.</div>
+          </div>
+          <div style="flex:1;background:rgba(203,251,69,0.08);border:1px solid rgba(203,251,69,0.25);border-radius:14px;padding:13px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;">
+              <span style="width:28px;height:28px;border-radius:50%;background:rgba(203,251,69,0.16);display:flex;align-items:center;justify-content:center;flex:0 0 auto;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#cbfb45" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L5 13h6l-1 9 9-12h-7z"></path></svg></span>
+              <div class="display" style="font-size:12px;color:#cbfb45;">После · 30 мин</div>
+            </div>
+            <div style="font-size:13px;line-height:1.5;color:#dfe3d6;">Творог / курица + рис.<br>Белок + углеводы для восстановления.</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;margin-top:14px;">
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line);">
+            <span style="width:30px;height:30px;border-radius:50%;background:rgba(122,182,255,0.14);display:flex;align-items:center;justify-content:center;flex:0 0 auto;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7ab6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s6 6.4 6 11a6 6 0 0 1-12 0c0-4.6 6-11 6-11z"></path></svg></span>
+            <div style="font-size:13.5px;">Вода — <b style="font-weight:700;">2.5 л</b> в день, больше в дни бега</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line);">
+            <span style="width:30px;height:30px;border-radius:50%;background:rgba(203,251,69,0.14);display:flex;align-items:center;justify-content:center;flex:0 0 auto;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#cbfb45" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="8" height="8" rx="1"></rect><path d="M6.5 6.5l11 11M4 9l2-2M18 15l2 2M9 4l-2 2M15 18l2 2"></path></svg></span>
+            <div style="font-size:13.5px;">Белок — <b style="font-weight:700;">1.6 г</b> на кг веса в сутки</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line);">
+            <span style="width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;flex:0 0 auto;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(242,244,236,0.7)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14a8 8 0 1 1-9-11 6 6 0 0 0 9 11z"></path></svg></span>
+            <div style="font-size:13.5px;">Сон <b style="font-weight:700;">8 ч</b> — база восстановления</div>
+          </div>
+        </div>
+        ${nutrition ? `<div class="summary-box nutrition" style="margin-top:14px;margin-bottom:0;"><div class="summary-label">Комментарий тренера</div>${formatAgentText(nutrition)}</div>` : ''}
+      </div>
+    ` : '';
+
+    return `
+      <!-- ЦЕЛЬ -->
+      <div style="background:linear-gradient(150deg,#cbfb45,#a8e02f);color:#12140d;border-radius:22px;padding:22px 20px;margin-bottom:14px;box-shadow:0 20px 44px -22px rgba(203,251,69,0.5);">
+        <div class="display" style="font-size:11px;letter-spacing:.1em;opacity:.65;">Общая цель</div>
+        <div class="display" style="font-size:28px;line-height:1;margin:8px 0 4px;">${escapeHtml(g.title || 'Общая цель')}</div>
+        <div style="font-size:12.5px;opacity:.7;margin-bottom:16px;">${g.workouts.length ? `${g.workouts[0].date.slice(0,10)} → ${g.workouts[g.workouts.length-1].date.slice(0,10)}` : 'план ещё формируется'}</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px;">
+          <span class="display" style="font-size:40px;line-height:0.8;">${pct}<span style="font-size:22px;">%</span></span>
+          <span style="font-size:12.5px;font-weight:700;opacity:.75;">${done} из ${total} тренировок</span>
+        </div>
+        <div style="height:12px;border-radius:999px;background:rgba(18,20,13,0.18);overflow:hidden;">
+          <div style="width:${pct}%;height:100%;background:#12140d;border-radius:999px;"></div>
+        </div>
+      </div>
+
+      ${total ? `
+      <div style="display:flex;gap:10px;margin-bottom:14px;">
+        <div class="card" style="flex:1;margin-bottom:0;padding:15px 12px;text-align:center;border-radius:16px;"><div class="display" style="font-size:28px;">${daysLeft}</div><div style="font-size:11px;color:var(--text-dim);margin-top:4px;">дней до финиша</div></div>
+        <div class="card" style="flex:1;margin-bottom:0;padding:15px 12px;text-align:center;border-radius:16px;"><div class="display" style="font-size:28px;">${done}</div><div style="font-size:11px;color:var(--text-dim);margin-top:4px;">выполнено</div></div>
+        <div class="card" style="flex:1;margin-bottom:0;padding:15px 12px;text-align:center;border-radius:16px;"><div class="display" style="font-size:28px;">${remaining}</div><div style="font-size:11px;color:var(--text-dim);margin-top:4px;">осталось</div></div>
+      </div>` : ''}
+
+      ${heroInfographics}
+    `;
+  }
+
+  /* ---------- Недельная полоска-календарь (без изменений) ---------- */
+
   function renderWeekStrip(goals) {
     const allWorkouts = goals.flatMap(g => g.workouts);
     const todayIso = mskDateStr();
     const short = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
-
-    // Три недели назад — три недели вперёд, прокручивается пальцем влево/вправо.
-    // Даты считаем строкой (без Date-объектов и часовых поясов устройства), чтобы
-    // не словить тот же сдвиг на сутки, что был раньше.
     const days = Array.from({ length: 43 }, (_, i) => addDaysToDateStr(todayIso, i - 21));
 
     document.getElementById('weekStrip').innerHTML = `<div class="week-strip" id="weekStripInner">${days.map((iso) => {
@@ -566,28 +741,32 @@ async function viewPlan() {
     });
   }
 
+  /* ---------- Загрузка + список тренировок ---------- */
+
   async function load() {
     const goals = await Api.get('/plan/overview');
     cachedGoals = goals;
-    renderWeekStrip(goals);
-    const box = document.getElementById('blocks');
+
     if (!goals.length) {
-      box.innerHTML = '<p class="screen-sub">Пока нет ни одного плана — напиши агенту, и он его составит.</p>';
+      document.getElementById('goalHero').innerHTML = '';
+      document.getElementById('weekStrip').innerHTML = '';
+      document.getElementById('blocks').innerHTML = '<p class="screen-sub">Пока нет ни одного плана — напиши агенту, и он его составит.</p>';
       return;
     }
 
+    const activeGoal = goals.find(g => g.status === 'active') || goals[0];
+    document.getElementById('goalHero').innerHTML = renderGoalHero(activeGoal);
+    renderWeekStrip(goals);
+
+    const box = document.getElementById('blocks');
     box.innerHTML = goals.map(g => {
       const done = g.workouts.filter(w => w.status === 'done').length;
-      const range = g.workouts.length
-        ? `${g.workouts[0].date.slice(0,10)} → ${g.workouts[g.workouts.length-1].date.slice(0,10)}`
-        : '';
-      const { logic, nutrition } = splitPlanSummary(g.description);
       return `
-      <div class="plan-block ${g.status === 'archived' ? 'archived' : ''}" data-goal="${g.id}">
+      <div class="card plan-block ${g.status === 'archived' ? 'archived' : ''}" data-goal="${g.id}" style="border-radius:18px;">
         <div class="plan-block-head">
           <div class="info">
-            <div class="eyebrow">${g.status === 'active' ? 'Текущий план' : 'Архив'} ${range ? '· ' + range : ''}</div>
-            <div class="title">${escapeHtml(g.title || 'Общая цель')}</div>
+            <div class="eyebrow">${g.status === 'active' ? 'Тренировки цели' : 'Архив'} · ${escapeHtml(g.title || 'Общая цель')}</div>
+            <div class="title">План занятий</div>
           </div>
           <div style="display:flex;gap:4px;align-items:center;">
             <span class="eyebrow" style="white-space:nowrap;">${done}/${g.workouts.length}</span>
@@ -596,8 +775,6 @@ async function viewPlan() {
             </button>
           </div>
         </div>
-        ${logic ? `<div class="summary-box"><div class="summary-label">Логика плана</div>${formatAgentText(logic)}</div>` : ''}
-        ${nutrition ? `<div class="summary-box nutrition"><div class="summary-label">Питание</div>${formatAgentText(nutrition)}</div>` : ''}
         ${g.workouts.map((w, i) => {
           const dh = formatDateHuman(w.date);
           return `
@@ -621,6 +798,7 @@ async function viewPlan() {
     box.querySelectorAll('.status-pill').forEach(btn => {
       btn.onclick = async (e) => {
         e.stopPropagation();
+        haptic(HAPTIC.select);
         const next = nextStatus(btn.dataset.status);
         await Api.patch('/plan/workouts/' + btn.dataset.id, { status: next });
         load();
@@ -676,11 +854,6 @@ async function viewPlan() {
 
   const TIME_OPTIONS = [1,2,3,5,10,15,20,25,30,35,40,45,50,60,70,80,90,105,120];
 
-  // Живое табло тренировки с GPS: дистанция/время/темп. Важно понимать ограничение
-  // платформы — ни один сайт (и даже установленный на экран домой) не может продолжать
-  // получать координаты, пока экран заблокирован — это правило iOS и Android, а не наше.
-  // Поэтому вместо "работы в фоне" мы держим экран включённым (Wake Lock) — это единственный
-  // реалистичный способ не потерять трек на время всей тренировки.
   function openGpsWorkout(workout) {
     let watchId = null, points = [], totalDistance = 0;
     let startTime = null, elapsedBeforePause = 0, running = false, wakeLock = null;
@@ -715,8 +888,6 @@ async function viewPlan() {
       return h ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
     }
     function currentElapsed() { return running ? elapsedBeforePause + (Date.now() - startTime) / 1000 : elapsedBeforePause; }
-    // Пишем по классу, а не по id — так одни и те же цифры сразу видны и на самом табло,
-    // и на экране блокировки (он показывает свою копию тех же элементов).
     function render() {
       document.querySelectorAll('.js-dist').forEach(el => el.textContent = (totalDistance / 1000).toFixed(2));
       document.querySelectorAll('.js-time').forEach(el => el.textContent = fmtClock(currentElapsed()));
@@ -729,7 +900,7 @@ async function viewPlan() {
     }
 
     async function requestWakeLock() {
-      try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch { /* не критично, просто без удержания экрана */ }
+      try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch { /* не критично */ }
     }
     function releaseWakeLock() { try { wakeLock?.release?.(); } catch {} wakeLock = null; }
 
@@ -738,9 +909,6 @@ async function viewPlan() {
       const warnEl = overlay.querySelector('#gpsWarning');
       const accEl = overlay.querySelector('#gpsAccuracy');
       if (accEl) accEl.textContent = `Точность сигнала: ±${Math.round(accuracy)} м`;
-
-      // GPS глушат/шумит — точки с большим разбросом (>30м) не учитываем в дистанции вообще,
-      // просто ждём следующую более точную. Лучше временная пауза в счёте, чем кривая дистанция.
       if (accuracy > 30) { if (warnEl) warnEl.style.display = 'block'; return; }
       if (warnEl) warnEl.style.display = 'none';
 
@@ -750,8 +918,6 @@ async function viewPlan() {
         const d = haversineMeters(last, point);
         const dt = (point.t - last.t) / 1000;
         const impliedSpeed = dt > 0 ? d / dt : 0;
-        // Скачок быстрее ~7 м/с (быстрее спринта) почти наверняка ошибка отражения/помехи,
-        // а не реальное перемещение — отбрасываем такую точку, а не считаем её в путь.
         if (d > 2 && impliedSpeed < 7) totalDistance += d;
       }
       points.push(point);
@@ -782,9 +948,6 @@ async function viewPlan() {
       releaseWakeLock();
     }
 
-    // Экран блокировки — не системная блокировка телефона, а щит внутри приложения:
-    // перекрывает весь экран и не даёт случайным нажатиям в кармане нажать "Пауза"/"Завершить".
-    // Снимается только зажатием (как в спортивных часах), а не случайным тапом.
     function openLockScreen() {
       const lock = document.createElement('div');
       lock.className = 'gps-lock-overlay';
@@ -801,7 +964,7 @@ async function viewPlan() {
         </button>
       `;
       document.body.appendChild(lock);
-      attachHoldToConfirm(document.getElementById('unlockBtn'), 1200, () => lock.remove());
+      attachHoldToConfirm(document.getElementById('unlockBtn'), 1200, () => { haptic(HAPTIC.unlock); lock.remove(); });
     }
 
     overlay.querySelector('#gpsLock').onclick = openLockScreen;
@@ -829,7 +992,7 @@ async function viewPlan() {
         await Api.post(`/plan/workouts/${workout.id}/result`, {
           notes, metrics: { distanceKm: distKm, durationSec: Math.round(elapsed), pace: paceText }
         });
-      } catch { /* даже если сохранить метрики не вышло, статус done всё равно проставится ниже */ }
+      } catch { /* статус done всё равно проставится */ }
       closeModal();
       showToast('Тренировка сохранена — тренер сейчас глянет на цифры 💪');
       load();
@@ -856,7 +1019,6 @@ async function viewPlan() {
 
     function render() { overlay.querySelector('#timerNum').textContent = fmtTime(remaining); }
 
-    // Прокручиваемый пикер минут вместо кнопок +1/-1
     const tp = overlay.querySelector('#tp');
     const items = [...overlay.querySelectorAll('.tp-item')];
     function syncPickerActive() {
@@ -1052,20 +1214,48 @@ async function viewChats() {
     });
   }
 
+  // "Сегодня" / "Вчера" / "26 июля" — подпись-разделитель дня, как в Telegram
+  function dayDividerLabel(dayIso) {
+    const today = mskDateStr();
+    const yesterday = addDaysToDateStr(today, -1);
+    if (dayIso === today) return 'Сегодня';
+    if (dayIso === yesterday) return 'Вчера';
+    const [y, m, d] = dayIso.split('-').map(Number);
+    return `${d} ${MONTHS_RU[m - 1]}`;
+  }
+
   function timeline() {
     const items = [
       ...messages.map(m => ({ ts: new Date(m.created_at).getTime(), html: renderCityMsg(m) })),
       ...events.map(e => ({ ts: new Date(e.created_at || e.event_date).getTime(), html: renderEventCard(e) }))
     ];
     items.sort((a, b) => a.ts - b.ts);
-    return items.map(i => i.html).join('');
+
+    let out = '', lastDay = null;
+    for (const item of items) {
+      const dayIso = mskDateStr(new Date(item.ts));
+      if (dayIso !== lastDay) {
+        out += `<div class="date-divider"><span>${dayDividerLabel(dayIso)}</span></div>`;
+        lastDay = dayIso;
+      }
+      out += item.html;
+    }
+    return out;
   }
 
-  function renderLog() {
+  function renderLog(scrollToBottom = false) {
     const log = document.getElementById('log');
+    const prevScrollTop = main.scrollTop;
+    const prevScrollHeight = main.scrollHeight;
     log.innerHTML = timeline();
     wireLogInteractions();
-    main.scrollTop = main.scrollHeight;
+    if (scrollToBottom) {
+      main.scrollTop = main.scrollHeight;
+    } else {
+      // Реакция/правка/RSVP не должны утаскивать ленту вниз — сохраняем то же место чтения,
+      // компенсируя изменение высоты контента выше текущей точки прокрутки.
+      main.scrollTop = prevScrollTop + (main.scrollHeight - prevScrollHeight);
+    }
     Api.post('/notifications/mark-read', { scope: 'chat' }).then(refreshUnreadCounts).catch(() => {});
   }
 
@@ -1100,6 +1290,7 @@ async function viewChats() {
     });
     document.querySelectorAll('.reaction-pill').forEach(pill => {
       pill.onclick = () => {
+        haptic(HAPTIC.reaction);
         const msgId = pill.closest('[data-msg-id]').dataset.msgId;
         ws.send(JSON.stringify({ type: 'react', id: msgId, emoji: pill.dataset.emoji }));
       };
@@ -1118,7 +1309,9 @@ async function viewChats() {
         const msgId = wrap.closest('[data-msg-id]').dataset.msgId;
         const msg = messages.find(m => String(m.id) === String(msgId));
         if (msg) {
+          haptic(HAPTIC.select);
           showReactionPopup(wrap, (emoji) => {
+            haptic(HAPTIC.reaction);
             ws.send(JSON.stringify({ type: 'react', id: msg.id, emoji }));
           });
         }
@@ -1157,21 +1350,46 @@ async function viewChats() {
   }
 
   async function createEventFlow() {
-    const title = prompt('Название события (например: Совместная пробежка)');
-    if (!title) return;
-    const dateStr = prompt('Дата и время (YYYY-MM-DD HH:MM)', mskDateStr() + ' 19:00');
-    if (!dateStr) return;
-    const iso = dateStr.replace(' ', 'T');
-    try {
-      await Api.post('/chats/city/events', { title, event_date: iso });
-      showToast('Событие создано');
-      events = await Api.get('/chats/city/events');
-      renderLog();
-    } catch (e) { showToast(e.message); }
+    showModal(`
+      <h2 style="margin-bottom:14px;">Новое событие</h2>
+      <div class="field"><label>Название</label><input id="evTitle" type="text" placeholder="Совместная пробежка"></div>
+      <div class="field"><label>Дата и время</label><input id="evDate" type="datetime-local" value="${mskDateStr()}T19:00"></div>
+      <div class="field">
+        <label>Фото (необязательно)</label>
+        <input type="file" accept="image/*" id="evPhotoFile" style="display:none;">
+        <button class="btn ghost block" id="evPhotoBtn" type="button">📷 Добавить фото</button>
+        <div id="evPhotoPreviewBox"></div>
+      </div>
+      <button class="btn accent-lg" id="evSubmit" style="margin-top:6px;">Создать</button>
+    `);
+
+    let photoDataUrl = null;
+    document.getElementById('evPhotoBtn').onclick = () => document.getElementById('evPhotoFile').click();
+    document.getElementById('evPhotoFile').onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        photoDataUrl = await resizePhotoToDataUrl(file, 900);
+        document.getElementById('evPhotoPreviewBox').innerHTML = `<img src="${photoDataUrl}" style="width:100%;border-radius:12px;margin-top:8px;display:block;">`;
+      } catch { showToast('Не удалось прикрепить фото'); }
+    };
+
+    document.getElementById('evSubmit').onclick = async () => {
+      const title = document.getElementById('evTitle').value.trim();
+      const dateVal = document.getElementById('evDate').value;
+      if (!title || !dateVal) { showToast('Заполни название и дату'); return; }
+      try {
+        await Api.post('/chats/city/events', { title, event_date: dateVal, photo_url: photoDataUrl });
+        closeModal();
+        showToast('Событие создано');
+        events = await Api.get('/chats/city/events');
+        renderLog(true);
+      } catch (e) { showToast(e.message); }
+    };
   }
 
   renderComposer();
-  renderLog();
+  renderLog(true);
 
   function connectSocket() {
     const token = Api.getToken();
@@ -1181,7 +1399,7 @@ async function viewChats() {
       const msg = JSON.parse(ev.data);
       if (msg.type === 'message') {
         messages.push(msg);
-        renderLog();
+        renderLog(true);
       } else if (msg.type === 'edit') {
         const m = messages.find(x => String(x.id) === String(msg.id));
         if (m) { m.content = msg.content; renderLog(); }
@@ -1337,6 +1555,7 @@ function renderEventCard(ev) {
   const when = `${d.getDate()} ${MONTHS_RU[d.getMonth()]} · ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   return `
   <div class="card event-card" data-event="${ev.id}">
+    ${ev.photo_url ? `<img class="event-photo" src="${ev.photo_url}" alt="фото события">` : ''}
     <div class="event-head">
       <div>
         <div class="event-title">${escapeHtml(ev.title)}</div>
@@ -1381,6 +1600,10 @@ function highlightMentions(escapedText) {
   return escapedText.replace(/(^|[\s(])@([a-zA-Zа-яА-Я0-9_]{2,32})/g, '$1<span class="mention">@$2</span>');
 }
 
+function formatMskTime(isoTimestamp) {
+  return new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' }).format(new Date(isoTimestamp));
+}
+
 function renderCityMsg(m) {
   const who = m.name || m.username || 'Аноним';
   const own = Api.getUserId() && String(m.user_id) === String(Api.getUserId());
@@ -1394,7 +1617,12 @@ function renderCityMsg(m) {
   } else {
     body = `<div class="city-bubble">${highlightMentions(escapeHtml(m.content))}</div>`;
   }
-  const myId = String(Api.getUserId());
+  const replyHtml = m.replyTo ? (() => {
+    const snippet = m.replyTo.content.startsWith('IMG::') ? '📷 Фото'
+      : m.replyTo.content.startsWith('AUD::') ? '🎤 Голосовое'
+      : m.replyTo.content;
+    return `<div class="reply-quote"><b>${escapeHtml(m.replyTo.author || 'Аноним')}</b><br>${escapeHtml(snippet).slice(0, 100)}</div>`;
+  })() : '';
   const reactionsHtml = (m.reactions && m.reactions.length)
     ? `<div class="reaction-row">${m.reactions.map(r => `<span class="reaction-pill ${r.mine ? 'mine' : ''}" data-emoji="${r.emoji}">${r.emoji} ${r.count}</span>`).join('')}</div>`
     : '';
@@ -1403,10 +1631,12 @@ function renderCityMsg(m) {
       ${avatarHtml(m.name, m.username, m.photo_url)}
       <div class="city-bubble-wrap">
         ${!own ? `<div class="city-who">${escapeHtml(who)}</div>` : ''}
+        ${replyHtml}
         ${body}
         ${reactionsHtml}
         <div class="city-meta-row">
           <span class="city-username">@${escapeHtml(m.username || 'user')}</span>
+          <span class="city-time">${formatMskTime(m.created_at)}</span>
           ${own ? '<button class="msg-more" aria-label="Действия">⋯</button>' : ''}
         </div>
       </div>

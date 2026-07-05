@@ -119,14 +119,14 @@ router.post('/city/report', async (req, res) => {
 
 // Создать событие в общем чате (например "Совместная пробежка")
 router.post('/city/events', async (req, res) => {
-  const { workout_id, title, event_date, max_participants } = req.body;
+  const { workout_id, title, event_date, max_participants, photo_url } = req.body;
   if (!title || !event_date) return res.status(400).json({ error: 'Укажите название и дату.' });
 
   const chat = await getOrCreateGlobalChat(req.userId);
   const r = await db.query(
-    `INSERT INTO events (chat_id, creator_id, workout_id, title, event_date, max_participants)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-    [chat.id, req.userId, workout_id || null, title, event_date, max_participants || null]
+    `INSERT INTO events (chat_id, creator_id, workout_id, title, event_date, max_participants, photo_url)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [chat.id, req.userId, workout_id || null, title, event_date, max_participants || null, photo_url || null]
   );
   await db.query(
     "INSERT INTO event_participants (event_id, user_id, response) VALUES ($1,$2,'going')",
@@ -140,7 +140,7 @@ router.get('/city/events', async (req, res) => {
   const chat = await getOrCreateGlobalChat(req.userId);
 
   const events = await db.query(
-    `SELECT e.id, e.title, e.event_date, e.creator_id, e.created_at,
+    `SELECT e.id, e.title, e.event_date, e.creator_id, e.created_at, e.photo_url,
             coalesce(p.name, u.username) AS creator_name
        FROM events e
        JOIN users u ON u.id = e.creator_id
@@ -174,6 +174,7 @@ router.get('/city/events', async (req, res) => {
       title: e.title,
       event_date: e.event_date,
       created_at: e.created_at,
+      photo_url: e.photo_url,
       isMine: e.creator_id === req.userId,
       creatorName: e.creator_name,
       going: going.map(r => r.name),

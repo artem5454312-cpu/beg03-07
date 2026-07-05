@@ -200,6 +200,7 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 
 /* ---- Events / poll (Буду / Не буду) ---- */
 .event-card{ margin-bottom:14px; }
+.event-photo{ display:block; width:calc(100% + 40px); margin:-20px -20px 14px; border-radius:18px 18px 0 0; max-height:220px; object-fit:cover; }
 .event-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:10px; }
 .event-title{ font-family:'Barlow Semi Condensed',sans-serif; font-weight:800; font-size:17px; text-transform:uppercase; letter-spacing:.01em; }
 .event-when{ font-size:13px; color:var(--text-dim); margin-top:2px; }
@@ -268,6 +269,14 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 .city-meta-row{ display:flex; align-items:center; gap:8px; margin-top:3px; }
 .city-row.own .city-meta-row{ justify-content:flex-end; }
 .city-username{ font-size:10.5px; color:var(--text-dim2); }
+.city-time{ font-size:10.5px; color:var(--text-dim2); }
+
+/* Разделитель дня в ленте чата — "Сегодня" / "Вчера" / "26 июля" */
+.date-divider{ display:flex; justify-content:center; margin:16px 0 10px; }
+.date-divider span{
+  background:var(--surface-2); border:1px solid var(--line); color:var(--text-dim);
+  font-size:11.5px; font-weight:600; padding:5px 14px; border-radius:980px;
+}
 .msg-more{ background:none; border:none; color:var(--text-dim); font-size:15px; line-height:1; cursor:pointer; padding:2px 4px; }
 .mention{ color:var(--lime); font-weight:700; }
 .city-row.own .mention{ color:var(--lime-ink); }
@@ -351,11 +360,19 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 .city-row.own .reply-quote{ background:rgba(18,20,13,0.14); border-left-color:var(--lime-ink); }
 .city-row.own .reply-quote b{ color:var(--lime-ink); }
 
-/* Полоска "отвечаешь на..." над полем ввода */
+/* Полоска "отвечаешь на..." — закреплена прямо над полем ввода, а не плавает в ленте */
+#replyPreview:empty{ display:none; }
+#replyPreview{
+  position:fixed; left:50%; transform:translateX(-50%);
+  bottom: calc(168px + env(safe-area-inset-bottom));
+  width:100%; max-width:720px; box-sizing:border-box; padding:0 16px;
+  z-index:26;
+}
 .reply-bar{
   display:flex; align-items:center; justify-content:space-between; gap:10px;
   background:var(--surface-2); border:1px solid var(--line); border-radius:14px;
-  padding:8px 12px; margin-bottom:8px; font-size:12.5px;
+  padding:8px 12px; font-size:12.5px;
+  box-shadow:0 8px 20px rgba(0,0,0,0.3);
 }
 .reply-bar-text{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .reply-bar-text b{ color:var(--lime); }

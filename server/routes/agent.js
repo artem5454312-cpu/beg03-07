@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const agentService = require('../services/agentService');
+const push = require('../services/push');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -34,6 +35,13 @@ router.post('/messages', async (req, res) => {
       [req.userId, reply]
     );
     res.json(saved.rows[0]);
+    // Пуш уходит даже на заблокированный экран/закрытое приложение — если пользователь
+    // разрешил уведомления (см. кнопку "Включить уведомления" на вкладке "Профиль").
+    push.sendToUser(req.userId, {
+      type: 'agent_message',
+      title: 'Тренер написал',
+      body: reply.length > 140 ? reply.slice(0, 140) + '…' : reply
+    }).catch(e => console.error('push error:', e));
   } catch (e) {
     console.error('Ошибка агента:', e);
     res.status(500).json({ error: 'Агент временно недоступен. Проверьте переменную ANTHROPIC_API_KEY.' });
@@ -60,6 +68,7 @@ router.post('/new-goal', async (req, res) => {
     [req.userId, reply]
   );
   res.json(saved.rows[0]);
+  push.sendToUser(req.userId, { type: 'agent_message', title: 'Тренер написал', body: reply.slice(0, 140) }).catch(() => {});
 });
 
 // Голосовой ввод для чата с агентом: браузер записывает звук, а распознаёт его

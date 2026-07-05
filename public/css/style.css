@@ -121,6 +121,8 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 .msg{ max-width:82%; padding:11px 15px; font-size:15px; line-height:1.45; border-radius:20px; }
 .msg.user{ align-self:flex-end; background:var(--lime); color:var(--lime-ink); font-weight:600; border-bottom-right-radius:6px; }
 .msg.agent{ align-self:flex-start; background:var(--surface-2); color:var(--text); border-bottom-left-radius:6px; }
+.msg-time{ font-size:10px; font-weight:500; opacity:.55; margin-top:4px; text-align:right; }
+.msg.agent .msg-time{ text-align:left; }
 .msg p{ margin:0 0 8px; }
 .msg p:last-child{ margin-bottom:0; }
 .msg ul{ margin:2px 0 8px 18px; padding:0; }

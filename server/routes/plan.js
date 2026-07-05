@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const agentService = require('../services/agentService');
+const push = require('../services/push');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -83,6 +84,7 @@ async function triggerWorkoutCheckIn(userId, workout, resultNotes) {
     `друг-тренер, а не бот с чек-листом.`;
   const reply = await agentService.sendMessage(userId, instruction);
   await db.query("INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'agent',$2)", [userId, reply]);
+  push.sendToUser(userId, { type: 'agent_message', title: 'Тренер написал', body: reply.slice(0, 140) }).catch(() => {});
 }
 
 // Прикрепить результат / файл к тренировке

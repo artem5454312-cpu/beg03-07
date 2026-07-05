@@ -387,17 +387,32 @@ async function viewAgent() {
   }
 
   function renderAgentMsg(m) {
+    const time = formatMskTime(m.created_at);
     if (m.role === 'user' && m.content.startsWith('IMG::')) {
-      return `<div class="msg user"><img class="chat-photo" src="${m.content.slice(5)}" alt="фото"></div>`;
+      return `<div class="msg user"><img class="chat-photo" src="${m.content.slice(5)}" alt="фото"><div class="msg-time">${time}</div></div>`;
     }
-    return `<div class="msg ${m.role}">${m.role === 'agent' ? formatAgentText(m.content) : escapeHtml(m.content)}</div>`;
+    const body = m.role === 'agent' ? formatAgentText(m.content) : escapeHtml(m.content);
+    return `<div class="msg ${m.role}">${body}<div class="msg-time">${time}</div></div>`;
+  }
+
+  function buildAgentTimeline(msgs) {
+    let out = '', lastDay = null;
+    for (const m of msgs) {
+      const dayIso = mskDateStr(new Date(m.created_at));
+      if (dayIso !== lastDay) {
+        out += `<div class="date-divider"><span>${dayDividerLabel(dayIso)}</span></div>`;
+        lastDay = dayIso;
+      }
+      out += renderAgentMsg(m);
+    }
+    return out;
   }
 
   async function loadHistory() {
     const msgs = await Api.get('/agent/messages');
     const log = document.getElementById('log');
-    log.innerHTML = msgs.map(renderAgentMsg).join('')
-      || '<p class="screen-sub">Пока пусто — напиши что-нибудь, чтобы агент начал знакомство.</p>';
+    log.innerHTML = msgs.length ? buildAgentTimeline(msgs)
+      : '<p class="screen-sub">Пока пусто — напиши что-нибудь, чтобы агент начал знакомство.</p>';
     document.querySelectorAll('#log .chat-photo').forEach(img => { img.onclick = () => openPhotoViewer(img.src); });
     scrollLogToBottom();
     Api.post('/notifications/mark-read', { scope: 'agent' }).then(refreshUnreadCounts).catch(() => {});
@@ -410,7 +425,7 @@ async function viewAgent() {
     scrollLogToBottom();
     try {
       const reply = await Api.post('/agent/messages', { content });
-      document.getElementById('pending').outerHTML = `<div class="msg agent">${formatAgentText(reply.content)}</div>`;
+      document.getElementById('pending').outerHTML = `<div class="msg agent">${formatAgentText(reply.content)}<div class="msg-time">${formatMskTime(reply.created_at)}</div></div>`;
     } catch (e) {
       document.getElementById('pending').outerHTML = `<div class="msg agent">Ошибка: ${escapeHtml(e.message)}</div>`;
     }
@@ -429,13 +444,13 @@ async function viewAgent() {
     } catch { showToast('Не удалось прикрепить фото'); return; }
 
     const log = document.getElementById('log');
-    log.innerHTML += `<div class="msg user"><img class="chat-photo" src="${dataUrl}" alt="фото"></div>`;
+    log.innerHTML += `<div class="msg user"><img class="chat-photo" src="${dataUrl}" alt="фото"><div class="msg-time">${formatMskTime(new Date().toISOString())}</div></div>`;
     document.querySelectorAll('#log .chat-photo').forEach(img => { img.onclick = () => openPhotoViewer(img.src); });
     log.innerHTML += `<div class="msg agent" id="pending">…</div>`;
     scrollLogToBottom();
     try {
       const reply = await Api.post('/agent/messages', { content: '', image: dataUrl });
-      document.getElementById('pending').outerHTML = `<div class="msg agent">${formatAgentText(reply.content)}</div>`;
+      document.getElementById('pending').outerHTML = `<div class="msg agent">${formatAgentText(reply.content)}<div class="msg-time">${formatMskTime(reply.created_at)}</div></div>`;
     } catch (err) {
       document.getElementById('pending').outerHTML = `<div class="msg agent">Ошибка: ${escapeHtml(err.message)}</div>`;
     }
@@ -448,7 +463,7 @@ async function viewAgent() {
     micSendBtn: document.getElementById('micSend'),
     onSend: (content) => {
       const log = document.getElementById('log');
-      log.innerHTML += `<div class="msg user">${escapeHtml(content)}</div>`;
+      log.innerHTML += `<div class="msg user">${escapeHtml(content)}<div class="msg-time">${formatMskTime(new Date().toISOString())}</div></div>`;
       scrollLogToBottom();
       sendToAgent(content);
     },
@@ -467,9 +482,9 @@ async function viewAgent() {
           showToast('Не удалось разобрать речь');
           return;
         }
-        document.getElementById('pending').insertAdjacentHTML('beforebegin', `<div class="msg user">${escapeHtml(text)}</div>`);
+        document.getElementById('pending').insertAdjacentHTML('beforebegin', `<div class="msg user">${escapeHtml(text)}<div class="msg-time">${formatMskTime(new Date().toISOString())}</div></div>`);
         const reply = await Api.post('/agent/messages', { content: text });
-        document.getElementById('pending').outerHTML = `<div class="msg agent">${formatAgentText(reply.content)}</div>`;
+        document.getElementById('pending').outerHTML = `<div class="msg agent">${formatAgentText(reply.content)}<div class="msg-time">${formatMskTime(reply.created_at)}</div></div>`;
       } catch (e) {
         document.getElementById('pending').outerHTML = `<div class="msg agent">Ошибка: ${escapeHtml(e.message || 'не удалось распознать речь')}</div>`;
       }
@@ -563,10 +578,10 @@ async function viewPlan() {
       <h1 class="display screen-title" style="margin-bottom:0;">План</h1>
       <button class="btn" id="addBtn">+ Добавить</button>
     </div>
-    <div id="weekStrip"></div>
     <div id="goalHero"></div>
-    <div id="blocks"></div>
-    <div id="goalExtra"></div>`;
+    <div id="goalExtra"></div>
+    <div id="weekStrip"></div>
+    <div id="blocks"></div>`;
 
   let cachedGoals = [];
 
@@ -635,17 +650,14 @@ async function viewPlan() {
           <div><div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;"><span>Сила</span><b style="font-weight:700;">${tpct('Сила')}%</b></div><div style="height:9px;border-radius:999px;background:rgba(255,255,255,0.07);overflow:hidden;"><div style="width:${tpct('Сила')}%;height:100%;background:var(--blue);border-radius:999px;"></div></div></div>
           <div><div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;"><span>Восстановление</span><b style="font-weight:700;">${tpct('Восстановление')}%</b></div><div style="height:9px;border-radius:999px;background:rgba(255,255,255,0.07);overflow:hidden;"><div style="width:${tpct('Восстановление')}%;height:100%;background:rgba(242,244,236,0.4);border-radius:999px;"></div></div></div>
         </div>
-        ${weeklyBars ? `
-          <div class="summary-label" style="margin-top:14px;">Тренировок по неделям</div>
-          <div style="display:flex;align-items:flex-end;gap:5px;height:46px;margin-top:8px;">${weeklyBars}</div>` : ''}
-        ${logic ? `<div class="summary-box" style="margin-top:18px;margin-bottom:0;"><div class="summary-label">Комментарий тренера</div>${formatAgentText(logic)}</div>` : ''}
+        ${logic ? `<div class="summary-box" style="margin-top:14px;margin-bottom:0;"><div class="summary-label">Комментарий тренера</div>${formatAgentText(logic)}</div>` : ''}
       </div>
 
       <!-- Питание -->
       <div class="card" style="border-radius:16px;padding:15px;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
           <span style="width:3px;height:15px;border-radius:2px;background:var(--blue);"></span>
-          <span class="display" style="font-size:15px;">Питание</span>
+          <span class="display" style="font-size:15px;">Питание на сегодня</span>
         </div>
         <div style="display:flex;gap:10px;">
           <div style="flex:1;background:rgba(122,182,255,0.08);border:1px solid rgba(122,182,255,0.25);border-radius:14px;padding:11px;">
@@ -1216,15 +1228,7 @@ async function viewChats() {
     });
   }
 
-  // "Сегодня" / "Вчера" / "26 июля" — подпись-разделитель дня, как в Telegram
-  function dayDividerLabel(dayIso) {
-    const today = mskDateStr();
-    const yesterday = addDaysToDateStr(today, -1);
-    if (dayIso === today) return 'Сегодня';
-    if (dayIso === yesterday) return 'Вчера';
-    const [y, m, d] = dayIso.split('-').map(Number);
-    return `${d} ${MONTHS_RU[m - 1]}`;
-  }
+  // "Сегодня" / "Вчера" / "26 июля" — подпись-разделитель дня определена ниже как общая функция
 
   function timeline() {
     const items = [
@@ -1602,6 +1606,17 @@ function highlightMentions(escapedText) {
   return escapedText.replace(/(^|[\s(])@([a-zA-Zа-яА-Я0-9_]{2,32})/g, '$1<span class="mention">@$2</span>');
 }
 
+// "Сегодня" / "Вчера" / "26 июля" — подпись-разделитель дня, как в Telegram.
+// Общая функция — используется и в общем чате, и в чате с агентом.
+function dayDividerLabel(dayIso) {
+  const today = mskDateStr();
+  const yesterday = addDaysToDateStr(today, -1);
+  if (dayIso === today) return 'Сегодня';
+  if (dayIso === yesterday) return 'Вчера';
+  const [y, m, d] = dayIso.split('-').map(Number);
+  return `${d} ${MONTHS_RU[m - 1]}`;
+}
+
 function formatMskTime(isoTimestamp) {
   return new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' }).format(new Date(isoTimestamp));
 }
@@ -1677,8 +1692,12 @@ async function viewProfile() {
       <div class="stat-row"><span>Прогресс</span><span class="v">${a.currentGoal.done}/${a.currentGoal.total}</span></div>
     </div>` : ''}
 
+    <button class="btn ghost block" id="pushBtn" style="margin-bottom:10px;">🔔 Включить уведомления</button>
     <button class="btn ghost block" id="logoutAll">Выйти со всех устройств</button>
   `;
+
+  document.getElementById('pushBtn').onclick = enablePushNotifications;
+  updatePushButtonLabel();
 
   document.getElementById('avatarFile').onchange = async (e) => {
     const file = e.target.files[0];
@@ -1697,6 +1716,61 @@ async function viewProfile() {
     await Api.post('/auth/logout-all');
     location.hash = '#/login';
   };
+}
+
+// Пуш-уведомления: работают даже на заблокированном экране / закрытом приложении,
+// если пользователь один раз разрешил их браузеру. На iOS это требует установки
+// приложения "На экран домой" — обычная вкладка Safari push не поддерживает вообще,
+// это ограничение самого iOS.
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+
+async function updatePushButtonLabel() {
+  const btn = document.getElementById('pushBtn');
+  if (!btn) return;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    btn.textContent = '🔔 Уведомления не поддерживаются в этом браузере';
+    btn.disabled = true;
+    return;
+  }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    btn.textContent = sub ? '🔔 Уведомления включены' : '🔔 Включить уведомления';
+  } catch { /* оставляем текст по умолчанию */ }
+}
+
+async function enablePushNotifications() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    showToast('Браузер не поддерживает push-уведомления');
+    return;
+  }
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') { showToast('Уведомления не разрешены'); return; }
+
+    const { key } = await Api.get('/notifications/vapid-public-key');
+    if (!key) { showToast('Push пока не настроен на сервере (нет VAPID-ключей)'); return; }
+
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key)
+      });
+    }
+    await Api.post('/notifications/push-subscribe', sub.toJSON());
+    showToast('Уведомления включены 🔔');
+    updatePushButtonLabel();
+  } catch (e) {
+    showToast('Не удалось включить уведомления');
+    console.error(e);
+  }
 }
 
 // Сжимает картинку на клиенте (canvas) до маленького квадрата, чтобы не хранить мегабайты в базе

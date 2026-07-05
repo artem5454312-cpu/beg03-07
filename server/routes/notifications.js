@@ -4,6 +4,13 @@ const { requireAuth } = require('../middleware/auth');
 const { GLOBAL_CHAT_KEY } = require('../utils/city');
 
 const router = express.Router();
+
+// Публичный VAPID-ключ нужен браузеру для подписки на push — отдаём его без авторизации,
+// это не секрет (секретный ключ VAPID_PRIVATE_KEY остаётся только на сервере).
+router.get('/vapid-public-key', (req, res) => {
+  res.json({ key: process.env.VAPID_PUBLIC_KEY || null });
+});
+
 router.use(requireAuth);
 
 router.get('/', async (req, res) => {

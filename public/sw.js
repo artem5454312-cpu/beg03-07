@@ -1,6 +1,6 @@
 // Service worker: даёт установить приложение на экран домой и работать чуть быстрее.
 // Версия кеша бампается при каждом изменении — старый кеш сам удаляется.
-const CACHE = 'fitpulse-v14';
+const CACHE = 'fitpulse-v15';
 const SHELL = ['/css/style.css', '/js/api.js', '/js/app.js', '/manifest.json'];
 
 self.addEventListener('install', (e) => {
@@ -35,6 +35,25 @@ self.addEventListener('fetch', (e) => {
 });
 
 self.addEventListener('push', (e) => {
-  const data = e.data ? e.data.json() : { title: 'FitPulse', body: 'У тебя новое уведомление' };
-  e.waitUntil(self.registration.showNotification(data.title || 'FitPulse', { body: data.body }));
+  const data = e.data ? e.data.json() : { title: 'PULSE', body: 'У тебя новое уведомление' };
+  e.waitUntil(self.registration.showNotification(data.title || 'PULSE', {
+    body: data.body,
+    icon: '/icons/icon.svg',
+    badge: '/icons/icon.svg',
+    tag: data.type || 'general',
+    data: { url: '/#/agent' }
+  }));
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = e.notification.data?.url || '/';
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const client of list) {
+        if ('focus' in client) { client.navigate(url); return client.focus(); }
+      }
+      return clients.openWindow(url);
+    })
+  );
 });

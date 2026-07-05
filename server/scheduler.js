@@ -82,6 +82,7 @@ async function sendMorningBriefing() {
 
       const reply = await agentService.sendMessage(user_id, instruction);
       await db.query("INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'agent',$2)", [user_id, reply]);
+      push.sendToUser(user_id, { type: 'agent_message', title: 'Тренер написал', body: reply.slice(0, 140) }).catch(() => {});
     } catch (e) {
       console.error('Ошибка утреннего брифинга для пользователя', user_id, e);
     }

@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS workouts (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE workouts ADD COLUMN IF NOT EXISTS difficulty TEXT NOT NULL DEFAULT 'medium'; -- easy | medium | hard
+ALTER TABLE workouts ADD COLUMN IF NOT EXISTS details TEXT; -- разбивка по упражнениям внутри одной тренировки
 
 CREATE TABLE IF NOT EXISTS workout_results (
   id SERIAL PRIMARY KEY,

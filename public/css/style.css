@@ -456,3 +456,11 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
   background:var(--lime); color:var(--lime-ink); font-weight:800; font-size:13px;
   display:flex; align-items:center; justify-content:center;
 }
+
+/* ---- Выбор уровня подготовки (анкета) ---- */
+.level-picker{ display:flex; gap:8px; }
+.level-opt{
+  flex:1; padding:12px 6px; border-radius:12px; border:1px solid var(--line);
+  background:var(--surface); color:var(--text); font-weight:700; font-size:13.5px; cursor:pointer;
+}
+.level-opt.active{ background:var(--lime); border-color:var(--lime); color:var(--lime-ink); }

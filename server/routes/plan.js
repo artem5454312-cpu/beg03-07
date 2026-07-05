@@ -138,7 +138,7 @@ router.get('/overview', async (req, res) => {
   if (!goals.rows.length) return res.json([]);
 
   const workouts = await db.query(
-    `SELECT w.id, w.goal_id, w.date, w.type, w.status, w.source, w.difficulty, wr.notes, wr.metrics
+    `SELECT w.id, w.goal_id, w.date, w.type, w.status, w.source, w.difficulty, w.details, wr.notes, wr.metrics
        FROM workouts w
        LEFT JOIN workout_results wr ON wr.workout_id = w.id
       WHERE w.user_id=$1

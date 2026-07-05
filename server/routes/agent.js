@@ -8,8 +8,15 @@ const router = express.Router();
 router.use(requireAuth);
 
 router.get('/messages', async (req, res) => {
+  // Раньше тут был баг: ORDER BY ... ASC LIMIT 50 брал первые 50 сообщений с начала
+  // переписки, а не последние — после 50-го сообщения все новые переставали
+  // показываться (хотя в базе оставались целыми). Теперь берём последние 300 и
+  // сортируем их по времени для отображения.
   const r = await db.query(
-    'SELECT id, role, content, created_at FROM agent_messages WHERE user_id=$1 ORDER BY created_at ASC LIMIT 50',
+    `SELECT id, role, content, created_at FROM (
+       SELECT id, role, content, created_at FROM agent_messages
+        WHERE user_id=$1 ORDER BY created_at DESC LIMIT 300
+     ) recent ORDER BY created_at ASC`,
     [req.userId]
   );
   res.json(r.rows);
@@ -20,23 +27,30 @@ router.post('/messages', async (req, res) => {
   if ((!content || !content.trim()) && !image) return res.status(400).json({ error: 'Пустое сообщение.' });
 
   const displayContent = image ? 'IMG::' + image : content;
-  await db.query("INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'user',$2)", [req.userId, displayContent]);
+  const userMsg = await db.query(
+    "INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'user',$2) RETURNING created_at",
+    [req.userId, displayContent]
+  );
+
+  // Отвечаем сразу же, не дожидаясь ответа Клода. Если план большой (много тренировок
+  // за раз), обработка может занять больше времени, чем терпит мобильная сеть/браузер
+  // в рамках одного запроса — раньше это иногда обрывалось ошибкой "Failed to fetch".
+  // Теперь телефон просто спрашивает "готово?" отдельными короткими запросами.
+  res.json({ pending: true, since: userMsg.rows[0].created_at });
 
   let imagePayload = null;
   if (image) {
-    const match = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
-    if (match) imagePayload = { mediaType: match[1], base64: match[2] };
+    const marker = ';base64,';
+    const idx = image.indexOf(marker);
+    if (image.startsWith('data:') && idx !== -1) {
+      const mediaType = image.slice('data:'.length, idx).split(';')[0] || 'image/jpeg';
+      imagePayload = { mediaType, base64: image.slice(idx + marker.length) };
+    }
   }
 
   try {
     const reply = await agentService.sendMessage(req.userId, content || '', { image: imagePayload });
-    const saved = await db.query(
-      "INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'agent',$2) RETURNING id, role, content, created_at",
-      [req.userId, reply]
-    );
-    res.json(saved.rows[0]);
-    // Пуш уходит даже на заблокированный экран/закрытое приложение — если пользователь
-    // разрешил уведомления (см. кнопку "Включить уведомления" на вкладке "Профиль").
+    await db.query("INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'agent',$2)", [req.userId, reply]);
     push.sendToUser(req.userId, {
       type: 'agent_message',
       title: 'Тренер написал',
@@ -44,7 +58,10 @@ router.post('/messages', async (req, res) => {
     }).catch(e => console.error('push error:', e));
   } catch (e) {
     console.error('Ошибка агента:', e);
-    res.status(500).json({ error: 'Агент временно недоступен. Проверьте переменную ANTHROPIC_API_KEY.' });
+    await db.query(
+      "INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'agent',$2)",
+      [req.userId, 'Не получилось обработать сообщение (проверь ANTHROPIC_API_KEY на сервере). Попробуй написать ещё раз.']
+    );
   }
 });
 
@@ -60,15 +77,23 @@ router.post('/new-goal', async (req, res) => {
     [req.userId]
   );
   const kickoff = 'Пользователь запросил новую цель. Задай вводные вопросы заново (цель, уровень, ограничения, доступное время).';
-  await db.query("INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'user',$2)", [req.userId, kickoff]);
-
-  const reply = await agentService.sendMessage(req.userId, kickoff);
-  const saved = await db.query(
-    "INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'agent',$2) RETURNING id, role, content, created_at",
-    [req.userId, reply]
+  const userMsg = await db.query(
+    "INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'user',$2) RETURNING created_at",
+    [req.userId, kickoff]
   );
-  res.json(saved.rows[0]);
-  push.sendToUser(req.userId, { type: 'agent_message', title: 'Тренер написал', body: reply.slice(0, 140) }).catch(() => {});
+  res.json({ pending: true, since: userMsg.rows[0].created_at });
+
+  try {
+    const reply = await agentService.sendMessage(req.userId, kickoff);
+    await db.query("INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'agent',$2)", [req.userId, reply]);
+    push.sendToUser(req.userId, { type: 'agent_message', title: 'Тренер написал', body: reply.slice(0, 140) }).catch(() => {});
+  } catch (e) {
+    console.error('Ошибка агента (new-goal):', e);
+    await db.query(
+      "INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'agent',$2)",
+      [req.userId, 'Не получилось начать новую цель — попробуй ещё раз через минуту.']
+    );
+  }
 });
 
 // Голосовой ввод для чата с агентом: браузер записывает звук, а распознаёт его
@@ -80,10 +105,18 @@ router.post('/transcribe', async (req, res) => {
     return res.status(500).json({ error: 'Голосовой ввод не настроен: нет переменной OPENAI_API_KEY.' });
   }
 
-  const match = audio.match(/^data:(audio\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
-  if (!match) return res.status(400).json({ error: 'Некорректный формат аудио.' });
-  const mime = match[1];
-  const buffer = Buffer.from(match[2], 'base64');
+  // Разбираем вручную, а не одним регулярным выражением: Android часто пишет тип вида
+  // "audio/webm;codecs=opus" — между типом и ";base64," оказывается ещё один параметр,
+  // и жёсткий регэксп на это падал ("Некорректный формат аудио" на Android).
+  const marker = ';base64,';
+  const markerIdx = audio.indexOf(marker);
+  if (!audio.startsWith('data:') || markerIdx === -1) {
+    return res.status(400).json({ error: 'Некорректный формат аудио.' });
+  }
+  const header = audio.slice('data:'.length, markerIdx); // например "audio/webm;codecs=opus"
+  const mime = header.split(';')[0] || 'audio/webm';      // берём только сам тип, без ;codecs=...
+  const base64 = audio.slice(markerIdx + marker.length);
+  const buffer = Buffer.from(base64, 'base64');
   const ext = mime.includes('webm') ? 'webm' : mime.includes('mp4') ? 'mp4' : mime.includes('ogg') ? 'ogg' : 'wav';
 
   try {

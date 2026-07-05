@@ -322,13 +322,32 @@ function viewOnboarding() {
       <div class="field"><label>Пол</label>
         <select id="gender"><option value="">Не указывать</option><option>Женский</option><option>Мужской</option></select>
       </div>
+      <div class="field">
+        <label>Уровень подготовки — тренер сразу подстроит план и тон</label>
+        <div class="level-picker" id="levelPicker">
+          <button type="button" class="level-opt" data-level="новичок">Новичок</button>
+          <button type="button" class="level-opt" data-level="средний">Средний</button>
+          <button type="button" class="level-opt" data-level="профи">Профи</button>
+        </div>
+      </div>
       <button class="btn block" id="go">Готово → к агенту</button>
     </div></div>`;
+
+  let selectedLevel = null;
+  document.querySelectorAll('.level-opt').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('.level-opt').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedLevel = btn.dataset.level;
+    };
+  });
+
   document.getElementById('go').onclick = async () => {
     await Api.post('/auth/profile-setup', {
       name: document.getElementById('name').value,
       profession: document.getElementById('profession').value,
-      gender: document.getElementById('gender').value
+      gender: document.getElementById('gender').value,
+      level: selectedLevel
     });
     location.hash = '#/agent';
   };
@@ -396,6 +415,15 @@ function blobToDataUrl(blob) {
 
 // Собирает textarea + одну кнопку "микрофон/отправить": пока поле пустое — кнопка это
 // микрофон (зажми и говори), как только начал печатать — превращается в "отправить".
+// Растягивает textarea под введённый текст, но не бесконечно — до потолка (по умолчанию
+// половина экрана), дальше появляется внутренняя прокрутка вместо бесконечного роста поля.
+function autoGrowTextarea(el, maxPx) {
+  const cap = maxPx || Math.round(window.innerHeight * 0.5);
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, cap) + 'px';
+  el.style.overflowY = el.scrollHeight > cap ? 'auto' : 'hidden';
+}
+
 function setupComposer({ textarea, micSendBtn, onSend, onVoice }) {
   function hasText() { return textarea.value.trim().length > 0; }
   function updateIcon() {
@@ -404,6 +432,8 @@ function setupComposer({ textarea, micSendBtn, onSend, onVoice }) {
       : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MIC_ICON}</svg>`;
   }
   textarea.addEventListener('input', updateIcon);
+  textarea.addEventListener('input', () => autoGrowTextarea(textarea));
+  autoGrowTextarea(textarea);
   updateIcon();
 
   micSendBtn.addEventListener('click', () => {
@@ -411,6 +441,7 @@ function setupComposer({ textarea, micSendBtn, onSend, onVoice }) {
     haptic(HAPTIC.tap);
     const content = textarea.value.trim();
     textarea.value = '';
+    autoGrowTextarea(textarea);
     updateIcon();
     onSend(content);
   });
@@ -422,6 +453,23 @@ function setupComposer({ textarea, micSendBtn, onSend, onVoice }) {
 }
 
 const MIC_ICON = '<path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z"/><path d="M19 11a7 7 0 01-14 0M12 19v3"/>';
+
+// Сервер отвечает сразу (не дожидаясь Клода) и готовит ответ агента в фоне — это
+// специально, чтобы длинные ответы (например, план на несколько недель) не упирались
+// в таймаут мобильной сети/браузера. Здесь просто коротко переспрашиваем, не готово ли.
+async function waitForAgentReply(sinceIso, maxMs = 120000) {
+  const since = new Date(sinceIso).getTime();
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const msgs = await Api.get('/agent/messages');
+      const found = msgs.find(m => m.role === 'agent' && new Date(m.created_at).getTime() > since);
+      if (found) return found;
+    } catch { /* временная сетевая заминка — просто попробуем ещё раз на следующем шаге */ }
+  }
+  return null;
+}
 
 async function viewAgent() {
   renderShell('agent');
@@ -480,8 +528,11 @@ async function viewAgent() {
     log.innerHTML += `<div class="msg agent" id="pending">…</div>`;
     scrollLogToBottom();
     try {
-      const reply = await Api.post('/agent/messages', { content });
-      document.getElementById('pending').outerHTML = `<div class="msg agent">${formatAgentText(reply.content)}<div class="msg-time">${formatMskTime(reply.created_at)}</div></div>`;
+      const posted = await Api.post('/agent/messages', { content });
+      const reply = await waitForAgentReply(posted.since);
+      document.getElementById('pending').outerHTML = reply
+        ? `<div class="msg agent">${formatAgentText(reply.content)}<div class="msg-time">${formatMskTime(reply.created_at)}</div></div>`
+        : `<div class="msg agent">Отвечаю дольше обычного — загляни в чат чуть позже, ответ уже готовится.</div>`;
     } catch (e) {
       document.getElementById('pending').outerHTML = `<div class="msg agent">Ошибка: ${escapeHtml(e.message)}</div>`;
     }
@@ -505,8 +556,11 @@ async function viewAgent() {
     log.innerHTML += `<div class="msg agent" id="pending">…</div>`;
     scrollLogToBottom();
     try {
-      const reply = await Api.post('/agent/messages', { content: '', image: dataUrl });
-      document.getElementById('pending').outerHTML = `<div class="msg agent">${formatAgentText(reply.content)}<div class="msg-time">${formatMskTime(reply.created_at)}</div></div>`;
+      const posted = await Api.post('/agent/messages', { content: '', image: dataUrl });
+      const reply = await waitForAgentReply(posted.since);
+      document.getElementById('pending').outerHTML = reply
+        ? `<div class="msg agent">${formatAgentText(reply.content)}<div class="msg-time">${formatMskTime(reply.created_at)}</div></div>`
+        : `<div class="msg agent">Отвечаю дольше обычного — загляни в чат чуть позже, ответ уже готовится.</div>`;
     } catch (err) {
       document.getElementById('pending').outerHTML = `<div class="msg agent">Ошибка: ${escapeHtml(err.message)}</div>`;
     }
@@ -539,8 +593,11 @@ async function viewAgent() {
           return;
         }
         document.getElementById('pending').insertAdjacentHTML('beforebegin', `<div class="msg user">${escapeHtml(text)}<div class="msg-time">${formatMskTime(new Date().toISOString())}</div></div>`);
-        const reply = await Api.post('/agent/messages', { content: text });
-        document.getElementById('pending').outerHTML = `<div class="msg agent">${formatAgentText(reply.content)}<div class="msg-time">${formatMskTime(reply.created_at)}</div></div>`;
+        const posted = await Api.post('/agent/messages', { content: text });
+        const reply = await waitForAgentReply(posted.since);
+        document.getElementById('pending').outerHTML = reply
+          ? `<div class="msg agent">${formatAgentText(reply.content)}<div class="msg-time">${formatMskTime(reply.created_at)}</div></div>`
+          : `<div class="msg agent">Отвечаю дольше обычного — загляни в чат чуть позже, ответ уже готовится.</div>`;
       } catch (e) {
         document.getElementById('pending').outerHTML = `<div class="msg agent">Ошибка: ${escapeHtml(e.message || 'не удалось распознать речь')}</div>`;
       }
@@ -550,9 +607,15 @@ async function viewAgent() {
   });
 
   document.getElementById('topNewGoalBtn').onclick = async () => {
-    await Api.post('/agent/new-goal', {});
     showToast('Начинаем новую цель');
-    loadHistory();
+    const posted = await Api.post('/agent/new-goal', {});
+    await loadHistory();
+    const log = document.getElementById('log');
+    log.innerHTML += `<div class="msg agent" id="pending">…</div>`;
+    scrollLogToBottom();
+    const reply = await waitForAgentReply(posted.since);
+    if (reply) loadHistory();
+    else document.getElementById('pending').outerHTML = `<div class="msg agent">Отвечаю дольше обычного — загляни в чат чуть позже.</div>`;
   };
   document.getElementById('clearChat').onclick = async () => {
     if (!confirm('Очистить ленту диалога? Память о тебе агент не забудет.')) return;
@@ -566,6 +629,12 @@ async function viewAgent() {
 function statusLabel(s) { return { planned: 'В процессе', done: 'Выполнено', skipped: 'Пропущено', cancelled: 'Отменено' }[s] || s; }
 function nextStatus(s) { return s === 'planned' ? 'done' : s === 'done' ? 'skipped' : 'planned'; }
 function difficultyLabel(d) { return { easy: 'Лёгкая', medium: 'Средняя', hard: 'Нужно постараться' }[d] || 'Средняя'; }
+function pluralExercises(n) {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'упражнение';
+  if ([2,3,4].includes(mod10) && ![12,13,14].includes(mod100)) return 'упражнения';
+  return 'упражнений';
+}
 
 const MONTHS_RU = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
 const WEEKDAYS_RU = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
@@ -848,12 +917,13 @@ async function viewPlan() {
         </div>
         ${g.workouts.map((w, i) => {
           const dh = formatDateHuman(w.date);
+          const exerciseCount = w.details ? w.details.split('\n').map(l => l.trim()).filter(Boolean).length : 0;
           return `
           <div class="lap-row" data-workout="${w.id}">
             <div class="lap-num mono">${String(i + 1).padStart(2, '0')}</div>
             <div>
               <div class="lap-title">${escapeHtml(w.type)}</div>
-              <div class="lap-meta">${w.source === 'agent' ? 'агент' : 'вручную'}</div>
+              <div class="lap-meta">${w.source === 'agent' ? 'агент' : 'вручную'}${exerciseCount ? ` · ${exerciseCount} ${pluralExercises(exerciseCount)} ›` : ''}</div>
               <span class="diff-badge ${w.difficulty || 'medium'}">${difficultyLabel(w.difficulty)}</span>
             </div>
             <div class="lap-right">
@@ -897,6 +967,15 @@ async function viewPlan() {
     return null;
   }
 
+  function renderDetailsList(details) {
+    if (!details || !details.trim()) return '';
+    const lines = details.split('\n').map(l => l.trim()).filter(Boolean);
+    return `<div class="card exercise-list" style="box-shadow:none;">
+      <div class="eyebrow" style="margin-bottom:8px;">Из чего состоит тренировка</div>
+      <ul>${lines.map(l => `<li>${escapeHtml(l.replace(/^[-•]\s*/, ''))}</li>`).join('')}</ul>
+    </div>`;
+  }
+
   function openWorkoutDetail(workoutId) {
     const hit = findWorkout(workoutId);
     if (!hit) return;
@@ -907,6 +986,7 @@ async function viewPlan() {
       <h2>${escapeHtml(workout.type)}</h2>
       <p class="screen-sub" style="margin:4px 0 8px;">${workout.date.slice(0,10)} · ${statusLabel(workout.status)}</p>
       <span class="diff-badge ${workout.difficulty || 'medium'}" style="margin-bottom:14px;">${difficultyLabel(workout.difficulty)}</span>
+      ${renderDetailsList(workout.details)}
       ${workout.notes ? `<div class="card" style="box-shadow:none;margin-top:10px;"><div class="eyebrow" style="margin-bottom:6px;">Заметка</div><p>${escapeHtml(workout.notes)}</p></div>` : ''}
       ${isRunLike ? `<button class="btn accent-lg" id="startGps" style="margin-top:14px;">📍 Начать с GPS-трекером</button>` : ''}
       <button class="btn ${isRunLike ? 'ghost' : 'accent-lg'} block" id="startWorkout" style="margin-top:10px;">${isRunLike ? 'Простой таймер без GPS' : 'Начать тренировку'}</button>
@@ -927,6 +1007,7 @@ async function viewPlan() {
   function openGpsWorkout(workout) {
     let watchId = null, points = [], totalDistance = 0;
     let startTime = null, elapsedBeforePause = 0, running = false, wakeLock = null;
+    let wasInterrupted = false;
 
     const overlay = showModal(`
       <div class="eyebrow" style="text-align:center;">Трекер · GPS</div>
@@ -997,6 +1078,18 @@ async function viewPlan() {
       showToast('GPS: ' + (err.message || 'сигнал потерян'));
     }
 
+    // Экран мог погаснуть/свернуться (например всплыло системное уведомление о заряде) —
+    // пока вкладка скрыта, браузер урезает JS и GPS может не обновляться. Не притворяемся,
+    // что всё ок — честно предупреждаем и даём поправить итог перед сохранением.
+    function onVisibilityChange() {
+      if (document.hidden && running) {
+        wasInterrupted = true;
+      } else if (!document.hidden && running) {
+        requestWakeLock();
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     function startTracking() {
       if (!('geolocation' in navigator)) { showToast('Геолокация недоступна в этом браузере'); return; }
       requestWakeLock();
@@ -1043,30 +1136,52 @@ async function viewPlan() {
       clearInterval(window.__gpsInterval);
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
       releaseWakeLock();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       document.getElementById('gpsLockOverlay')?.remove();
     };
 
     overlay.querySelector('#gpsToggle').onclick = () => { running ? pauseTracking() : startTracking(); };
-    overlay.querySelector('#gpsFinish').onclick = async () => {
+    overlay.querySelector('#gpsFinish').onclick = () => {
       if (running) pauseTracking();
       document.getElementById('gpsLockOverlay')?.remove();
-      const elapsed = elapsedBeforePause;
-      const distKm = +(totalDistance / 1000).toFixed(2);
-      let paceText = '—';
-      if (totalDistance > 50 && elapsed > 20) {
-        const paceSecPerKm = elapsed / (totalDistance / 1000);
-        paceText = `${Math.floor(paceSecPerKm / 60)}:${String(Math.round(paceSecPerKm % 60)).padStart(2,'0')}/км`;
-      }
-      const notes = `GPS-трекер: ${distKm} км за ${fmtClock(elapsed)}, средний темп ${paceText}.`;
-      try {
-        await Api.post(`/plan/workouts/${workout.id}/result`, {
-          notes, metrics: { distanceKm: distKm, durationSec: Math.round(elapsed), pace: paceText }
-        });
-      } catch { /* статус done всё равно проставится */ }
-      closeModal();
-      showToast('Тренировка сохранена — тренер сейчас глянет на цифры 💪');
-      load();
+      openFinishReview();
     };
+
+    // Экран подтверждения: показываем, что насчитал GPS, но даём поправить руками —
+    // особенно важно, если трекинг мог прерваться (экран гас, уведомление и т.п.).
+    function openFinishReview() {
+      const distKm = +(totalDistance / 1000).toFixed(2);
+      const elapsedMin = Math.round(elapsedBeforePause / 60);
+
+      showModal(`
+        <h2 style="margin-bottom:6px;">Проверь результат</h2>
+        ${wasInterrupted ? `<div class="gps-warning" style="margin-bottom:14px;">Пока бежал, экран гас или сворачивался (например уведомление) — трекинг мог прерваться. Поправь цифры, если дистанция или время выглядят заниженными.</div>` : ''}
+        <div class="field"><label>Дистанция, км</label><input id="fixDist" type="number" inputmode="decimal" step="0.01" value="${distKm}"></div>
+        <div class="field"><label>Время, минут</label><input id="fixMin" type="number" inputmode="numeric" value="${elapsedMin}"></div>
+        <button class="btn accent-lg block" id="saveGpsResult">Сохранить</button>
+      `);
+
+      document.getElementById('saveGpsResult').onclick = async () => {
+        const finalDist = parseFloat(document.getElementById('fixDist').value) || 0;
+        const finalMin = parseInt(document.getElementById('fixMin').value, 10) || 0;
+        const finalSec = finalMin * 60;
+        let paceText = '—';
+        if (finalDist > 0 && finalSec > 0) {
+          const paceSecPerKm = finalSec / finalDist;
+          paceText = `${Math.floor(paceSecPerKm / 60)}:${String(Math.round(paceSecPerKm % 60)).padStart(2,'0')}/км`;
+        }
+        const notes = `GPS-трекер: ${finalDist} км за ${fmtClock(finalSec)}, средний темп ${paceText}.` +
+          (wasInterrupted ? ' (Трекинг прерывался, цифры скорректированы вручную.)' : '');
+        try {
+          await Api.post(`/plan/workouts/${workout.id}/result`, {
+            notes, metrics: { distanceKm: finalDist, durationSec: finalSec, pace: paceText, corrected: wasInterrupted }
+          });
+        } catch { /* статус done всё равно проставится */ }
+        closeModal();
+        showToast('Тренировка сохранена — тренер сейчас глянет на цифры 💪');
+        load();
+      };
+    }
   }
 
   function openWorkoutTimer(workout) {
@@ -1149,13 +1264,25 @@ async function viewPlan() {
 
   await load();
 
-  document.getElementById('addBtn').onclick = async () => {
-    const type = prompt('Тип тренировки (например: бег)');
-    if (!type) return;
-    const date = prompt('Дата (YYYY-MM-DD)', mskDateStr());
-    if (!date) return;
-    await Api.post('/plan/workouts', { type, date });
-    load();
+  document.getElementById('addBtn').onclick = () => {
+    showModal(`
+      <h2 style="margin-bottom:14px;">Добавить тренировку</h2>
+      <div class="field"><label>Тип тренировки</label><input id="wType" type="text" placeholder="Например: бег"></div>
+      <div class="field"><label>Дата</label><input id="wDate" type="date" value="${mskDateStr()}"></div>
+      <div class="field"><label>Сложность</label>
+        <select id="wDifficulty"><option value="easy">Лёгкая</option><option value="medium" selected>Средняя</option><option value="hard">Нужно постараться</option></select>
+      </div>
+      <button class="btn accent-lg block" id="wSubmit">Добавить</button>
+    `);
+    document.getElementById('wSubmit').onclick = async () => {
+      const type = document.getElementById('wType').value.trim();
+      const date = document.getElementById('wDate').value;
+      const difficulty = document.getElementById('wDifficulty').value;
+      if (!type || !date) { showToast('Заполни тип и дату'); return; }
+      await Api.post('/plan/workouts', { type, date, difficulty });
+      closeModal();
+      load();
+    };
   };
 }
 
@@ -1396,6 +1523,9 @@ async function viewChats() {
           <textarea id="editText" style="width:100%;min-height:90px;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--surface);color:var(--text);">${escapeHtml(msg.content)}</textarea>
           <button class="btn block" id="saveEdit" style="margin-top:12px;">Сохранить</button>
         `);
+        const editTextEl = document.getElementById('editText');
+        autoGrowTextarea(editTextEl, 300);
+        editTextEl.addEventListener('input', () => autoGrowTextarea(editTextEl, 300));
         document.getElementById('saveEdit').onclick = () => {
           const val = document.getElementById('editText').value.trim();
           if (val) ws.send(JSON.stringify({ type: 'edit', id: msg.id, content: val }));
@@ -1749,6 +1879,7 @@ async function viewProfile() {
     </div>` : ''}
 
     <button class="btn ghost block" id="pushBtn" style="margin-bottom:10px;">🔔 Включить уведомления</button>
+    <a href="https://t.me/artemvereshchagin" target="_blank" rel="noopener" class="btn ghost block" style="margin-bottom:10px;text-decoration:none;">💬 Помощь — написать в Telegram</a>
     <button class="btn ghost block" id="logoutAll">Выйти со всех устройств</button>
   `;
 

@@ -9,6 +9,13 @@ const pool = new Pool({
     : false
 });
 
+// Railway по умолчанию держит базу в UTC. Чтобы CURRENT_DATE и "сегодня" в фоновых
+// задачах совпадали с реальным днём в Москве (а не сдвигались ночью на сутки), фиксируем
+// часовой пояс сессии на каждом новом соединении из пула.
+pool.on('connect', (client) => {
+  client.query("SET TIME ZONE 'Europe/Moscow'").catch((e) => console.error('Не удалось выставить часовой пояс сессии БД:', e));
+});
+
 module.exports = {
   query: (text, params) => pool.query(text, params),
   pool

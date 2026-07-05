@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   content TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER REFERENCES chat_messages(id) ON DELETE SET NULL;
 
 -- Реакции на сообщения общего чата (одна реакция на пользователя на сообщение)
 CREATE TABLE IF NOT EXISTS message_reactions (

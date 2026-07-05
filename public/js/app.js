@@ -23,7 +23,30 @@ function showModal(innerHtml) {
 }
 function closeModal() {
   if (window.__timerInterval) { clearInterval(window.__timerInterval); window.__timerInterval = null; }
+  if (window.__modalCleanup) { window.__modalCleanup(); window.__modalCleanup = null; }
   document.getElementById('modalOverlay')?.remove();
+}
+
+// Зажми и держи N миллисекунд, чтобы подтвердить — как разблокировка на спортивных часах.
+// Случайное короткое касание (например, через ткань кармана) ничего не сделает.
+function attachHoldToConfirm(btn, ms, onConfirm) {
+  let timer = null, held = false;
+  function start(e) {
+    e.preventDefault();
+    held = true;
+    btn.classList.add('holding');
+    btn.style.setProperty('--hold-ms', ms + 'ms');
+    timer = setTimeout(() => { if (held) onConfirm(); }, ms);
+  }
+  function cancel() {
+    held = false;
+    btn.classList.remove('holding');
+    clearTimeout(timer);
+  }
+  btn.addEventListener('pointerdown', start);
+  btn.addEventListener('pointerup', cancel);
+  btn.addEventListener('pointerleave', cancel);
+  btn.addEventListener('pointercancel', cancel);
 }
 
 function escapeHtml(s) {
@@ -451,9 +474,28 @@ function difficultyLabel(d) { return { easy: 'Лёгкая', medium: 'Средн
 
 const MONTHS_RU = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
 const WEEKDAYS_RU = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
+
+// Показывает календарную дату (без времени) так, как она есть, не пропуская её
+// через локальный часовой пояс телефона — раньше именно тут был источник сдвига на день.
 function formatDateHuman(dateStr) {
-  const d = new Date(dateStr + (dateStr.length <= 10 ? 'T00:00:00' : ''));
-  return { date: `${d.getDate()} ${MONTHS_RU[d.getMonth()]}`, weekday: WEEKDAYS_RU[d.getDay()] };
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return { date: `${dt.getUTCDate()} ${MONTHS_RU[dt.getUTCMonth()]}`, weekday: WEEKDAYS_RU[dt.getUTCDay()] };
+}
+
+// Сегодняшняя дата по МОСКВЕ (а не по часовому поясу телефона), формат YYYY-MM-DD.
+// Специально не через toISOString() — та всегда в UTC и на положительных смещениях
+// (Москва, +3) стабильно "откатывала" сегодняшний день на сутки назад.
+function mskDateStr(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+}
+
+// Прибавляет/вычитает дни у календарной даты-строки без какой-либо зависимости
+// от часового пояса устройства — чистая календарная арифметика через Date.UTC.
+function addDaysToDateStr(dateStr, delta) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + delta));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
 }
 
 // Разбивает текстовое описание плана от агента на два блока: логика плана и питание,
@@ -490,25 +532,23 @@ async function viewPlan() {
 
   function renderWeekStrip(goals) {
     const allWorkouts = goals.flatMap(g => g.workouts);
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const todayIso = today.toISOString().slice(0, 10);
+    const todayIso = mskDateStr();
     const short = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
 
-    // Три недели назад — три недели вперёд, прокручивается пальцем влево/вправо
-    const start = new Date(today); start.setDate(today.getDate() - 21);
-    const days = Array.from({ length: 43 }, (_, i) => {
-      const d = new Date(start); d.setDate(start.getDate() + i);
-      return d;
-    });
+    // Три недели назад — три недели вперёд, прокручивается пальцем влево/вправо.
+    // Даты считаем строкой (без Date-объектов и часовых поясов устройства), чтобы
+    // не словить тот же сдвиг на сутки, что был раньше.
+    const days = Array.from({ length: 43 }, (_, i) => addDaysToDateStr(todayIso, i - 21));
 
-    document.getElementById('weekStrip').innerHTML = `<div class="week-strip" id="weekStripInner">${days.map((d) => {
-      const iso = d.toISOString().slice(0, 10);
+    document.getElementById('weekStrip').innerHTML = `<div class="week-strip" id="weekStripInner">${days.map((iso) => {
+      const [y, m, d] = iso.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d));
       const match = allWorkouts.find(w => w.date.slice(0, 10) === iso);
       const dotClass = !match ? 'empty' : match.status === 'done' ? 'done' : match.status === 'skipped' ? 'skipped' : 'planned';
       return `
         <div class="week-day ${iso === todayIso ? 'today' : ''} ${match ? 'has-workout' : ''}" data-date="${iso}" data-workout="${match ? match.id : ''}">
-          <div class="wd-label">${short[d.getDay()]}</div>
-          <div class="wd-num">${d.getDate()}</div>
+          <div class="wd-label">${short[dt.getUTCDay()]}</div>
+          <div class="wd-num">${dt.getUTCDate()}</div>
           <div class="wd-dot ${dotClass}"></div>
         </div>`;
     }).join('')}</div>`;
@@ -613,15 +653,18 @@ async function viewPlan() {
     const hit = findWorkout(workoutId);
     if (!hit) return;
     const { workout, goalTitle } = hit;
+    const isRunLike = /бег|пробежк|run|кросс/i.test(workout.type);
     showModal(`
       <div class="eyebrow" style="margin-bottom:6px;">${escapeHtml(goalTitle || 'План')}</div>
       <h2>${escapeHtml(workout.type)}</h2>
       <p class="screen-sub" style="margin:4px 0 8px;">${workout.date.slice(0,10)} · ${statusLabel(workout.status)}</p>
       <span class="diff-badge ${workout.difficulty || 'medium'}" style="margin-bottom:14px;">${difficultyLabel(workout.difficulty)}</span>
       ${workout.notes ? `<div class="card" style="box-shadow:none;margin-top:10px;"><div class="eyebrow" style="margin-bottom:6px;">Заметка</div><p>${escapeHtml(workout.notes)}</p></div>` : ''}
-      <button class="btn accent-lg" id="startWorkout" style="margin-top:14px;">Начать тренировку</button>
+      ${isRunLike ? `<button class="btn accent-lg" id="startGps" style="margin-top:14px;">📍 Начать с GPS-трекером</button>` : ''}
+      <button class="btn ${isRunLike ? 'ghost' : 'accent-lg'} block" id="startWorkout" style="margin-top:10px;">${isRunLike ? 'Простой таймер без GPS' : 'Начать тренировку'}</button>
       <button class="btn ghost block" id="deleteWorkout" style="margin-top:10px;color:var(--brick);border-color:var(--brick);">Удалить эту тренировку</button>
     `);
+    if (isRunLike) document.getElementById('startGps').onclick = () => openGpsWorkout(workout);
     document.getElementById('startWorkout').onclick = () => openWorkoutTimer(workout);
     document.getElementById('deleteWorkout').onclick = async () => {
       if (!confirm('Удалить эту тренировку?')) return;
@@ -632,6 +675,166 @@ async function viewPlan() {
   }
 
   const TIME_OPTIONS = [1,2,3,5,10,15,20,25,30,35,40,45,50,60,70,80,90,105,120];
+
+  // Живое табло тренировки с GPS: дистанция/время/темп. Важно понимать ограничение
+  // платформы — ни один сайт (и даже установленный на экран домой) не может продолжать
+  // получать координаты, пока экран заблокирован — это правило iOS и Android, а не наше.
+  // Поэтому вместо "работы в фоне" мы держим экран включённым (Wake Lock) — это единственный
+  // реалистичный способ не потерять трек на время всей тренировки.
+  function openGpsWorkout(workout) {
+    let watchId = null, points = [], totalDistance = 0;
+    let startTime = null, elapsedBeforePause = 0, running = false, wakeLock = null;
+
+    const overlay = showModal(`
+      <div class="eyebrow" style="text-align:center;">Трекер · GPS</div>
+      <p class="timer-now">${escapeHtml(workout.type)}</p>
+      <div class="gps-warning" id="gpsWarning" style="display:none;">Слабый или потерянный сигнал GPS — держи телефон на виду, ждём точку получше</div>
+      <div class="gps-grid">
+        <div class="gps-stat"><div class="gps-num mono js-dist">0.00</div><div class="gps-label">км</div></div>
+        <div class="gps-stat"><div class="gps-num mono js-time">00:00</div><div class="gps-label">время</div></div>
+        <div class="gps-stat"><div class="gps-num mono js-pace">—</div><div class="gps-label">темп /км</div></div>
+      </div>
+      <p class="screen-sub" style="text-align:center;margin:10px 0 0;" id="gpsAccuracy">Жду сигнал GPS…</p>
+      <div class="timer-controls" style="margin-top:16px;">
+        <button class="btn" id="gpsToggle">Старт</button>
+        <button class="btn ghost" id="gpsFinish">Завершить</button>
+      </div>
+      <button class="btn ghost block" id="gpsLock" style="margin-top:10px;">🔒 Заблокировать экран тренировки</button>
+      <p class="screen-sub" style="margin-top:14px;">Держи вкладку открытой и экран включённым — веб-приложения физически не могут отслеживать GPS с заблокированным (системно) экраном. Пока идёт трекинг, экран специально не гаснет сам. Кнопка выше — это отдельная блокировка от случайных нажатий (для кармана), не системная блокировка телефона.</p>
+    `);
+
+    function haversineMeters(a, b) {
+      const R = 6371000, toRad = x => x * Math.PI / 180;
+      const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
+      const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+    }
+    function fmtClock(sec) {
+      sec = Math.max(0, Math.floor(sec));
+      const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+      return h ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    }
+    function currentElapsed() { return running ? elapsedBeforePause + (Date.now() - startTime) / 1000 : elapsedBeforePause; }
+    // Пишем по классу, а не по id — так одни и те же цифры сразу видны и на самом табло,
+    // и на экране блокировки (он показывает свою копию тех же элементов).
+    function render() {
+      document.querySelectorAll('.js-dist').forEach(el => el.textContent = (totalDistance / 1000).toFixed(2));
+      document.querySelectorAll('.js-time').forEach(el => el.textContent = fmtClock(currentElapsed()));
+      const elapsed = currentElapsed();
+      if (totalDistance > 50 && elapsed > 20) {
+        const paceSecPerKm = elapsed / (totalDistance / 1000);
+        const paceText = `${Math.floor(paceSecPerKm / 60)}:${String(Math.round(paceSecPerKm % 60)).padStart(2,'0')}`;
+        document.querySelectorAll('.js-pace').forEach(el => el.textContent = paceText);
+      }
+    }
+
+    async function requestWakeLock() {
+      try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch { /* не критично, просто без удержания экрана */ }
+    }
+    function releaseWakeLock() { try { wakeLock?.release?.(); } catch {} wakeLock = null; }
+
+    function onPosition(pos) {
+      const { latitude, longitude, accuracy } = pos.coords;
+      const warnEl = overlay.querySelector('#gpsWarning');
+      const accEl = overlay.querySelector('#gpsAccuracy');
+      if (accEl) accEl.textContent = `Точность сигнала: ±${Math.round(accuracy)} м`;
+
+      // GPS глушат/шумит — точки с большим разбросом (>30м) не учитываем в дистанции вообще,
+      // просто ждём следующую более точную. Лучше временная пауза в счёте, чем кривая дистанция.
+      if (accuracy > 30) { if (warnEl) warnEl.style.display = 'block'; return; }
+      if (warnEl) warnEl.style.display = 'none';
+
+      const point = { lat: latitude, lng: longitude, t: Date.now() };
+      const last = points[points.length - 1];
+      if (last) {
+        const d = haversineMeters(last, point);
+        const dt = (point.t - last.t) / 1000;
+        const impliedSpeed = dt > 0 ? d / dt : 0;
+        // Скачок быстрее ~7 м/с (быстрее спринта) почти наверняка ошибка отражения/помехи,
+        // а не реальное перемещение — отбрасываем такую точку, а не считаем её в путь.
+        if (d > 2 && impliedSpeed < 7) totalDistance += d;
+      }
+      points.push(point);
+      render();
+    }
+    function onGeoError(err) {
+      showToast('GPS: ' + (err.message || 'сигнал потерян'));
+    }
+
+    function startTracking() {
+      if (!('geolocation' in navigator)) { showToast('Геолокация недоступна в этом браузере'); return; }
+      requestWakeLock();
+      startTime = Date.now();
+      running = true;
+      const btn = overlay.querySelector('#gpsToggle');
+      if (btn) btn.textContent = 'Пауза';
+      window.__gpsInterval = setInterval(render, 1000);
+      watchId = navigator.geolocation.watchPosition(onPosition, onGeoError, { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 });
+    }
+    function pauseTracking() {
+      running = false;
+      elapsedBeforePause = currentElapsed();
+      const btn = overlay.querySelector('#gpsToggle');
+      if (btn) btn.textContent = 'Продолжить';
+      clearInterval(window.__gpsInterval);
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+      releaseWakeLock();
+    }
+
+    // Экран блокировки — не системная блокировка телефона, а щит внутри приложения:
+    // перекрывает весь экран и не даёт случайным нажатиям в кармане нажать "Пауза"/"Завершить".
+    // Снимается только зажатием (как в спортивных часах), а не случайным тапом.
+    function openLockScreen() {
+      const lock = document.createElement('div');
+      lock.className = 'gps-lock-overlay';
+      lock.id = 'gpsLockOverlay';
+      lock.innerHTML = `
+        <div class="gps-lock-stats">
+          <div class="gps-num mono js-dist">${(totalDistance/1000).toFixed(2)}</div><div class="gps-label">км</div>
+          <div class="gps-num mono js-time" style="margin-top:14px;">${fmtClock(currentElapsed())}</div><div class="gps-label">время</div>
+        </div>
+        <p class="lock-hint">Экран заблокирован от случайных нажатий — держи телефон свободно в кармане</p>
+        <button class="unlock-hold" id="unlockBtn">
+          <span class="unlock-fill"></span>
+          <span class="unlock-label">🔓 Держи, чтобы разблокировать</span>
+        </button>
+      `;
+      document.body.appendChild(lock);
+      attachHoldToConfirm(document.getElementById('unlockBtn'), 1200, () => lock.remove());
+    }
+
+    overlay.querySelector('#gpsLock').onclick = openLockScreen;
+
+    window.__modalCleanup = () => {
+      clearInterval(window.__gpsInterval);
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      releaseWakeLock();
+      document.getElementById('gpsLockOverlay')?.remove();
+    };
+
+    overlay.querySelector('#gpsToggle').onclick = () => { running ? pauseTracking() : startTracking(); };
+    overlay.querySelector('#gpsFinish').onclick = async () => {
+      if (running) pauseTracking();
+      document.getElementById('gpsLockOverlay')?.remove();
+      const elapsed = elapsedBeforePause;
+      const distKm = +(totalDistance / 1000).toFixed(2);
+      let paceText = '—';
+      if (totalDistance > 50 && elapsed > 20) {
+        const paceSecPerKm = elapsed / (totalDistance / 1000);
+        paceText = `${Math.floor(paceSecPerKm / 60)}:${String(Math.round(paceSecPerKm % 60)).padStart(2,'0')}/км`;
+      }
+      const notes = `GPS-трекер: ${distKm} км за ${fmtClock(elapsed)}, средний темп ${paceText}.`;
+      try {
+        await Api.post(`/plan/workouts/${workout.id}/result`, {
+          notes, metrics: { distanceKm: distKm, durationSec: Math.round(elapsed), pace: paceText }
+        });
+      } catch { /* даже если сохранить метрики не вышло, статус done всё равно проставится ниже */ }
+      closeModal();
+      showToast('Тренировка сохранена — тренер сейчас глянет на цифры 💪');
+      load();
+    };
+  }
 
   function openWorkoutTimer(workout) {
     let remaining = guessMinutes(workout.type) * 60;
@@ -717,7 +920,7 @@ async function viewPlan() {
   document.getElementById('addBtn').onclick = async () => {
     const type = prompt('Тип тренировки (например: бег)');
     if (!type) return;
-    const date = prompt('Дата (YYYY-MM-DD)', new Date().toISOString().slice(0, 10));
+    const date = prompt('Дата (YYYY-MM-DD)', mskDateStr());
     if (!date) return;
     await Api.post('/plan/workouts', { type, date });
     load();
@@ -740,7 +943,25 @@ async function viewChats() {
     <p class="screen-sub">События и сообщения идут вместе, одной лентой.</p>
     <div id="joinBanner"></div>
     <div class="chat-log" id="log"></div>
+    <div id="replyPreview"></div>
     <div id="composerBox"></div>`;
+
+  let replyingTo = null;
+  function cancelReply() { replyingTo = null; renderReplyPreview(); }
+  function renderReplyPreview() {
+    const box = document.getElementById('replyPreview');
+    if (!replyingTo) { box.innerHTML = ''; return; }
+    const author = replyingTo.name || replyingTo.username || 'Аноним';
+    const snippet = replyingTo.content.startsWith('IMG::') ? '📷 Фото'
+      : replyingTo.content.startsWith('AUD::') ? '🎤 Голосовое'
+      : replyingTo.content;
+    box.innerHTML = `
+      <div class="reply-bar">
+        <div class="reply-bar-text"><b>${escapeHtml(author)}</b>: ${escapeHtml(snippet).slice(0, 80)}</div>
+        <button class="reply-bar-close" aria-label="Отменить ответ">✕</button>
+      </div>`;
+    box.querySelector('.reply-bar-close').onclick = cancelReply;
+  }
 
   const data = await Api.get('/chats/city');
   let messages = data.messages;
@@ -808,7 +1029,8 @@ async function viewChats() {
       if (!file) return;
       try {
         const dataUrl = await resizePhotoToDataUrl(file, 640);
-        ws.send(JSON.stringify({ type: 'message', content: 'IMG::' + dataUrl }));
+        ws.send(JSON.stringify({ type: 'message', content: 'IMG::' + dataUrl, replyTo: replyingTo?.id || null }));
+        cancelReply();
       } catch { showToast('Не удалось прикрепить фото'); }
       e.target.value = '';
     };
@@ -816,12 +1038,16 @@ async function viewChats() {
     setupComposer({
       textarea: document.getElementById('text'),
       micSendBtn: document.getElementById('micSend'),
-      onSend: (content) => ws.send(JSON.stringify({ type: 'message', content })),
+      onSend: (content) => {
+        ws.send(JSON.stringify({ type: 'message', content, replyTo: replyingTo?.id || null }));
+        cancelReply();
+      },
       onVoice: async (blob) => {
         // В общем чате голосовое отправляется как есть — остальные могут прослушать,
         // ничего не транскрибируется (в отличие от чата с агентом).
         const dataUrl = await blobToDataUrl(blob);
-        ws.send(JSON.stringify({ type: 'message', content: 'AUD::' + dataUrl }));
+        ws.send(JSON.stringify({ type: 'message', content: 'AUD::' + dataUrl, replyTo: replyingTo?.id || null }));
+        cancelReply();
       }
     });
   }
@@ -878,25 +1104,27 @@ async function viewChats() {
         ws.send(JSON.stringify({ type: 'react', id: msgId, emoji: pill.dataset.emoji }));
       };
     });
-    // Зажми сообщение — выскакивает выбор реакции
+    // Тап по тексту сообщения — ответить (цитата), как в Telegram
+    document.querySelectorAll('.city-bubble').forEach(el => {
+      el.addEventListener('click', () => {
+        const msgId = el.closest('[data-msg-id]').dataset.msgId;
+        const msg = messages.find(m => String(m.id) === String(msgId));
+        if (msg) { replyingTo = msg; renderReplyPreview(); document.getElementById('text')?.focus(); }
+      });
+    });
+    // Зажми сообщение — реакции выскакивают прямо над ним, а не отдельным листом снизу
     document.querySelectorAll('.city-bubble-wrap').forEach(wrap => {
       attachLongPress(wrap, () => {
         const msgId = wrap.closest('[data-msg-id]').dataset.msgId;
         const msg = messages.find(m => String(m.id) === String(msgId));
-        if (msg) openReactionPicker(msg);
+        if (msg) {
+          showReactionPopup(wrap, (emoji) => {
+            ws.send(JSON.stringify({ type: 'react', id: msg.id, emoji }));
+          });
+        }
       });
     });
     wireVoicePlayers(document.getElementById('log'));
-  }
-
-  function openReactionPicker(msg) {
-    showModal(`<div class="reaction-picker">${REACTION_EMOJIS.map(e => `<button class="reaction-opt" data-emoji="${e}">${e}</button>`).join('')}</div>`);
-    document.querySelectorAll('.reaction-opt').forEach(btn => {
-      btn.onclick = () => {
-        ws.send(JSON.stringify({ type: 'react', id: msg.id, emoji: btn.dataset.emoji }));
-        closeModal();
-      };
-    });
   }
 
   function openMessageActions(msg) {
@@ -931,7 +1159,7 @@ async function viewChats() {
   async function createEventFlow() {
     const title = prompt('Название события (например: Совместная пробежка)');
     if (!title) return;
-    const dateStr = prompt('Дата и время (YYYY-MM-DD HH:MM)', new Date().toISOString().slice(0,16).replace('T',' '));
+    const dateStr = prompt('Дата и время (YYYY-MM-DD HH:MM)', mskDateStr() + ' 19:00');
     if (!dateStr) return;
     const iso = dateStr.replace(' ', 'T');
     try {
@@ -984,11 +1212,11 @@ function pluralMembers(n) {
 
 // Долгий тап (зажатие) — для вызова меню реакций на сообщении
 function attachLongPress(el, callback, ms = 450) {
-  let timer = null, moved = false, startX = 0, startY = 0;
+  let timer = null, moved = false, startX = 0, startY = 0, justFired = false;
   el.addEventListener('pointerdown', (e) => {
     moved = false;
     startX = e.clientX; startY = e.clientY;
-    timer = setTimeout(() => { if (!moved) callback(e); }, ms);
+    timer = setTimeout(() => { if (!moved) { justFired = true; callback(e); } }, ms);
   });
   const cancel = () => clearTimeout(timer);
   el.addEventListener('pointerup', cancel);
@@ -996,6 +1224,39 @@ function attachLongPress(el, callback, ms = 450) {
   el.addEventListener('pointermove', (e) => {
     if (Math.abs(e.clientX - startX) > 10 || Math.abs(e.clientY - startY) > 10) { moved = true; cancel(); }
   });
+  // Долгое нажатие уже открыло реакции — гасим последующий click, чтобы заодно
+  // не сработал тап-ответ на том же жесте.
+  el.addEventListener('click', (e) => {
+    if (justFired) { e.stopPropagation(); e.preventDefault(); justFired = false; }
+  }, true);
+}
+
+// Всплывающие реакции прямо над сообщением (не отдельный лист внизу экрана, как раньше)
+function showReactionPopup(anchorEl, onPick) {
+  document.querySelectorAll('.reaction-popup').forEach(el => el.remove());
+  const rect = anchorEl.getBoundingClientRect();
+  const popup = document.createElement('div');
+  popup.className = 'reaction-popup';
+  popup.innerHTML = REACTION_EMOJIS.map(e => `<button class="reaction-opt" data-emoji="${e}">${e}</button>`).join('');
+  document.body.appendChild(popup);
+
+  const popupWidth = popup.offsetWidth, popupHeight = popup.offsetHeight;
+  let left = rect.left + rect.width / 2 - popupWidth / 2;
+  left = Math.min(Math.max(8, left), window.innerWidth - popupWidth - 8);
+  let top = rect.top - popupHeight - 10;
+  if (top < 8) top = rect.bottom + 10; // если сверху не влезает — показываем снизу
+  popup.style.left = left + 'px';
+  popup.style.top = top + 'px';
+
+  popup.querySelectorAll('.reaction-opt').forEach(btn => {
+    btn.onclick = (e) => { e.stopPropagation(); onPick(btn.dataset.emoji); popup.remove(); };
+  });
+  setTimeout(() => {
+    const closeOnOutside = (e) => {
+      if (!popup.contains(e.target)) { popup.remove(); document.removeEventListener('pointerdown', closeOnOutside); }
+    };
+    document.addEventListener('pointerdown', closeOnOutside);
+  }, 60);
 }
 
 function openPhotoViewer(url) {

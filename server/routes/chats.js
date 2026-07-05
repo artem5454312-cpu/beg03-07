@@ -41,7 +41,7 @@ router.get('/city', async (req, res) => {
   );
 
   const messages = await db.query(
-    `SELECT cm.id, cm.content, cm.created_at, cm.user_id, p.name, p.photo_url, u.username
+    `SELECT cm.id, cm.content, cm.created_at, cm.user_id, cm.reply_to_id, p.name, p.photo_url, u.username
        FROM chat_messages cm
        JOIN users u ON u.id = cm.user_id
        LEFT JOIN profiles p ON p.user_id = u.id
@@ -51,6 +51,7 @@ router.get('/city', async (req, res) => {
   const rows = messages.rows.reverse();
 
   let reactionsByMsg = {};
+  let replyById = {};
   if (rows.length) {
     const reactions = await db.query(
       `SELECT message_id, emoji, count(*)::int AS count, array_agg(user_id) AS user_ids
@@ -59,13 +60,30 @@ router.get('/city', async (req, res) => {
       [rows.map(m => m.id)]
     );
     for (const r of reactions.rows) (reactionsByMsg[r.message_id] ||= []).push({ emoji: r.emoji, count: r.count, userIds: r.user_ids });
+
+    const replyIds = [...new Set(rows.filter(m => m.reply_to_id).map(m => m.reply_to_id))];
+    if (replyIds.length) {
+      const rp = await db.query(
+        `SELECT cm.id, cm.content, coalesce(p.name, u.username) AS author
+           FROM chat_messages cm
+           JOIN users u ON u.id = cm.user_id
+           LEFT JOIN profiles p ON p.user_id = u.id
+          WHERE cm.id = ANY($1::int[])`,
+        [replyIds]
+      );
+      for (const r of rp.rows) replyById[r.id] = r;
+    }
   }
 
   res.json({
     chat,
     isMember: memberRow.rows.length > 0,
     memberCount: countRow.rows[0].c,
-    messages: rows.map(m => ({ ...m, reactions: reactionsByMsg[m.id] || [] }))
+    messages: rows.map(m => ({
+      ...m,
+      reactions: reactionsByMsg[m.id] || [],
+      replyTo: m.reply_to_id ? (replyById[m.reply_to_id] || null) : null
+    }))
   });
 });
 

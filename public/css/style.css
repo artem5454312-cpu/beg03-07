@@ -259,10 +259,11 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 }
 .avatar img{ width:100%; height:100%; object-fit:cover; }
 .city-row.own .avatar{ background:var(--lime); color:var(--lime-ink); }
-.city-bubble-wrap{ max-width:74%; }
+.city-bubble-wrap{ max-width:74%; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
 .city-who{ font-size:11px; font-weight:600; color:var(--text-dim); margin:0 4px 3px; }
 .city-row.own .city-who{ text-align:right; }
-.city-bubble{ padding:10px 14px; border-radius:18px; font-size:14.5px; line-height:1.4; background:var(--surface-2); color:var(--text); border-bottom-left-radius:6px; }
+.city-bubble{ padding:10px 14px; border-radius:18px; font-size:14.5px; line-height:1.4; background:var(--surface-2); color:var(--text); border-bottom-left-radius:6px;
+  -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; cursor:pointer; }
 .city-row.own .city-bubble{ background:var(--lime); color:var(--lime-ink); font-weight:600; border-bottom-right-radius:6px; border-bottom-left-radius:18px; }
 .city-meta-row{ display:flex; align-items:center; gap:8px; margin-top:3px; }
 .city-row.own .city-meta-row{ justify-content:flex-end; }
@@ -331,8 +332,34 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
   padding:3px 9px; cursor:pointer; color:var(--text);
 }
 .reaction-pill.mine{ background:rgba(203,251,69,0.16); border-color:var(--lime); color:var(--lime); }
-.reaction-picker{ display:flex; gap:10px; justify-content:space-around; padding:6px 0 4px; }
-.reaction-opt{ background:none; border:none; font-size:28px; cursor:pointer; padding:6px; border-radius:50%; }
+/* Всплывающее меню реакций прямо над сообщением (не отдельный лист снизу экрана) */
+.reaction-popup{
+  position:fixed; z-index:250; background:var(--surface-2); border:1px solid var(--line);
+  border-radius:999px; padding:6px 8px; display:flex; gap:2px;
+  box-shadow:0 14px 34px rgba(0,0,0,0.5);
+}
+.reaction-popup .reaction-opt{ background:none; border:none; font-size:22px; cursor:pointer; padding:5px; border-radius:50%; line-height:1; }
+.reaction-popup .reaction-opt:active{ background:var(--line); }
+
+/* Цитата отвечаемого сообщения — сверху пузыря, как в Telegram */
+.reply-quote{
+  display:block; border-left:3px solid var(--lime); padding:4px 8px; margin-bottom:5px;
+  font-size:12px; line-height:1.3; border-radius:6px; background:rgba(255,255,255,0.04);
+  max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.reply-quote b{ color:var(--lime); }
+.city-row.own .reply-quote{ background:rgba(18,20,13,0.14); border-left-color:var(--lime-ink); }
+.city-row.own .reply-quote b{ color:var(--lime-ink); }
+
+/* Полоска "отвечаешь на..." над полем ввода */
+.reply-bar{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  background:var(--surface-2); border:1px solid var(--line); border-radius:14px;
+  padding:8px 12px; margin-bottom:8px; font-size:12.5px;
+}
+.reply-bar-text{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.reply-bar-text b{ color:var(--lime); }
+.reply-bar-close{ background:none; border:none; color:var(--text-dim); font-size:16px; cursor:pointer; flex:0 0 auto; }
 .reaction-opt:active{ background:var(--line); }
 
 /* Голосовое сообщение — плеер с "волной", как в Telegram, без нативных браузерных контролов */
@@ -364,3 +391,35 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 .member-row .username{ font-size:12px; color:var(--text-dim); }
 .join-banner{ text-align:center; padding:26px 16px; }
 .join-banner p{ color:var(--text-dim); font-size:14px; margin-bottom:16px; }
+
+/* ---- GPS-табло тренировки ---- */
+.gps-warning{
+  background:rgba(255,59,48,0.12); color:var(--brick); border-radius:12px;
+  padding:9px 12px; font-size:13px; text-align:center; margin-bottom:10px;
+}
+.gps-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; text-align:center; }
+.gps-stat{ background:var(--surface-2); border:1px solid var(--line); border-radius:14px; padding:14px 6px; }
+.gps-num{ font-size:26px; font-weight:800; }
+.gps-label{ font-size:11px; color:var(--text-dim); margin-top:2px; text-transform:uppercase; letter-spacing:.03em; }
+
+/* ---- Экран блокировки тренировки (от случайных нажатий в кармане) ---- */
+.gps-lock-overlay{
+  position:fixed; inset:0; z-index:400; background:var(--ink);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:6px; padding:24px; text-align:center;
+}
+.gps-lock-stats .gps-num{ font-size:44px; font-weight:800; color:var(--text); }
+.gps-lock-stats .gps-label{ font-size:12px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; }
+.lock-hint{ color:var(--text-dim); font-size:13px; max-width:280px; margin:22px 0 30px; }
+.unlock-hold{
+  position:relative; overflow:hidden; width:100%; max-width:320px; padding:18px 20px;
+  border-radius:18px; border:1px solid var(--line); background:var(--surface-2);
+  color:var(--text); font-weight:700; font-size:14px; cursor:pointer;
+}
+.unlock-fill{
+  position:absolute; inset:0; background:var(--lime); transform:scaleX(0); transform-origin:left;
+  z-index:0;
+}
+.unlock-hold.holding .unlock-fill{ transition:transform var(--hold-ms,1200ms) linear; transform:scaleX(1); }
+.unlock-label{ position:relative; z-index:1; }
+.unlock-hold.holding .unlock-label{ color:var(--lime-ink); }

@@ -70,12 +70,17 @@ router.patch('/workouts/:id', async (req, res) => {
   }
 });
 
-async function triggerWorkoutCheckIn(userId, workout) {
+async function triggerWorkoutCheckIn(userId, workout, resultNotes) {
+  const dataLine = resultNotes ? `\nДанные с трекера: ${resultNotes}` : '';
   const instruction = `(Служебная пометка для тебя, пользователь её не видел и не писал: он только что ` +
-    `отметил тренировку "${workout.type}" за ${workout.date} как выполненную через приложение, не в чате.) ` +
-    `Проактивно, одним коротким сообщением поинтересуйся, как всё прошло: самочувствие, что получалось, ` +
-    `что было тяжело. Будь тёплым, живым и поддерживающим, коротко похвали за то, что довёл до конца. ` +
-    `Не занудствуй, не растягивай, без канцелярита — как хороший друг-тренер, а не бот с чек-листом.`;
+    `отметил тренировку "${workout.type}" за ${workout.date} как выполненную через приложение, не в чате.${dataLine}) ` +
+    (resultNotes
+      ? `Проактивно, одним коротким сообщением прокомментируй именно эти цифры: похвали конкретно за то, что ` +
+        `видишь в данных (дистанция/темп/время), и по-дружески скажи, что это значит для его цели, а не общими фразами. `
+      : `Проактивно, одним коротким сообщением поинтересуйся, как всё прошло: самочувствие, что получалось, ` +
+        `что было тяжело. `) +
+    `Будь тёплым, живым и поддерживающим. Не занудствуй, не растягивай, без канцелярита — как хороший ` +
+    `друг-тренер, а не бот с чек-листом.`;
   const reply = await agentService.sendMessage(userId, instruction);
   await db.query("INSERT INTO agent_messages (user_id, role, content) VALUES ($1,'agent',$2)", [userId, reply]);
 }
@@ -89,13 +94,13 @@ router.post('/workouts/:id/result', async (req, res) => {
 
   const r = await db.query(
     'INSERT INTO workout_results (workout_id, notes, metrics, file_url) VALUES ($1,$2,$3,$4) RETURNING *',
-    [req.params.id, notes || null, metrics || null, file_url || null]
+    [req.params.id, notes || null, metrics ? JSON.stringify(metrics) : null, file_url || null]
   );
   const w = await db.query("UPDATE workouts SET status='done' WHERE id=$1 RETURNING *", [req.params.id]);
   res.json(r.rows[0]);
 
   if (!wasDone) {
-    triggerWorkoutCheckIn(req.userId, w.rows[0]).catch(e => console.error('Ошибка проверки тренировки агентом:', e));
+    triggerWorkoutCheckIn(req.userId, w.rows[0], notes).catch(e => console.error('Ошибка проверки тренировки агентом:', e));
   }
 });
 

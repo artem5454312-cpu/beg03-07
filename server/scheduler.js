@@ -89,17 +89,18 @@ async function sendMorningBriefing() {
 }
 
 function start() {
+  const MSK = { timezone: 'Europe/Moscow' };
   cron.schedule('0 * * * *', () => {
     remindTodayWorkouts().catch(e => console.error('remindTodayWorkouts error', e));
     remindUpcomingEvents().catch(e => console.error('remindUpcomingEvents error', e));
-  });
+  }, MSK);
   cron.schedule('0 3 * * *', () => {
     autoMarkSkipped().catch(e => console.error('autoMarkSkipped error', e));
-  });
+  }, MSK);
   cron.schedule('0 7 * * *', () => {
     sendMorningBriefing().catch(e => console.error('sendMorningBriefing error', e));
-  });
-  console.log('Планировщик задач запущен (напоминания раз в час, авто-статусы и утренний брифинг раз в сутки).');
+  }, MSK);
+  console.log('Планировщик задач запущен по московскому времени (напоминания раз в час, авто-статусы и утренний брифинг раз в сутки).');
 }
 
 module.exports = { start };

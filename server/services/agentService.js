@@ -266,7 +266,16 @@ async function executeTool(userId, name, input) {
 }
 
 const HISTORY_LIMIT = 20;
-const WEEKDAYS_RU = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
+
+// Возвращает сегодняшнюю дату и день недели строго по московскому времени,
+// независимо от часового пояса самого сервера (на Railway это обычно UTC).
+// Раньше здесь стоял голый new Date().toISOString(), который в UTC — из-за этого
+// ночью по Москве агент мог "отставать" на день и путать даты тренировок.
+function todayInMoscow() {
+  const dateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit' });
+  const weekdayFmt = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', weekday: 'long' });
+  return { dateStr: dateFmt.format(new Date()), weekday: weekdayFmt.format(new Date()) };
+}
 
 async function sendMessage(userId, userText, opts = {}) {
   const memory = await getMemory(userId);
@@ -292,9 +301,7 @@ async function sendMessage(userId, userText, opts = {}) {
   }
   messages.push({ role: 'user', content: currentContent });
 
-  const today = new Date();
-  const dateStr = today.toISOString().slice(0, 10);
-  const weekday = WEEKDAYS_RU[today.getDay()];
+  const { dateStr, weekday } = todayInMoscow();
 
   const fullSystem = `${SYSTEM_PROMPT}\n\nСЕГОДНЯШНЯЯ ДАТА: ${dateStr} (${weekday})\n\nПАМЯТЬ О ПОЛЬЗОВАТЕЛЕ (JSON):\n${JSON.stringify(memory)}`;
 

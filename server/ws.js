@@ -59,8 +59,8 @@ function attachWebSocket(server) {
             return;
           }
           const r = await db.query(
-            'INSERT INTO chat_messages (chat_id, user_id, content) VALUES ($1,$2,$3) RETURNING id, content, created_at',
-            [id, userId, data.content]
+            'INSERT INTO chat_messages (chat_id, user_id, content, reply_to_id) VALUES ($1,$2,$3,$4) RETURNING id, content, created_at, reply_to_id',
+            [id, userId, data.content, data.replyTo || null]
           );
           saved = r.rows[0];
         } else if (kind === 'dm') {
@@ -76,6 +76,16 @@ function attachWebSocket(server) {
           `SELECT u.username, p.name, p.photo_url FROM users u LEFT JOIN profiles p ON p.user_id=u.id WHERE u.id=$1`,
           [userId]
         );
+        let replyTo = null;
+        if (saved.reply_to_id) {
+          const rp = await db.query(
+            `SELECT cm.content, coalesce(p.name, u.username) AS author
+               FROM chat_messages cm JOIN users u ON u.id=cm.user_id LEFT JOIN profiles p ON p.user_id=u.id
+              WHERE cm.id=$1`,
+            [saved.reply_to_id]
+          );
+          if (rp.rows.length) replyTo = rp.rows[0];
+        }
         broadcast(room, {
           type: 'message',
           id: saved.id,
@@ -84,7 +94,8 @@ function attachWebSocket(server) {
           user_id: userId,
           username: author.rows[0]?.username,
           name: author.rows[0]?.name,
-          photo_url: author.rows[0]?.photo_url
+          photo_url: author.rows[0]?.photo_url,
+          replyTo
         });
         return;
       }

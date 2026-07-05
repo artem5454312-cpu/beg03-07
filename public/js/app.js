@@ -173,6 +173,60 @@ function renderShell(activeTab) {
 
 /* ---------------- AUTH SCREENS ---------------- */
 
+function viewIntro() {
+  document.getElementById('app').innerHTML = `
+    <div class="auth-wrap"><div class="auth-card" style="text-align:center;">
+      <div class="display" style="font-size:54px;letter-spacing:-0.02em;margin-bottom:14px;">PULSE</div>
+      <p class="screen-sub" style="font-size:16px;line-height:1.55;margin-bottom:40px;">
+        Персональный ИИ-тренер: сам составляет план, следит за прогрессом
+        и пишет тебе, когда пора на тренировку.
+      </p>
+      <button class="btn accent-lg block" id="goRegister">Регистрация</button>
+      <p style="margin-top:16px;"><a href="#/login" class="eyebrow">Уже есть аккаунт →</a></p>
+    </div></div>`;
+  document.getElementById('goRegister').onclick = () => { location.hash = '#/promo'; };
+}
+
+// Определяем, запущено ли уже как установленное приложение — если да, шаг установки
+// смысла не имеет и его нужно молча пропустить.
+function isStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function detectPlatform() {
+  const ua = navigator.userAgent;
+  if (/iPad|iPhone|iPod/.test(ua)) return 'ios';
+  if (/Android/.test(ua)) return 'android';
+  return 'desktop';
+}
+
+function viewInstallApp() {
+  if (isStandalone()) { location.hash = '#/onboarding'; return; }
+  const platform = detectPlatform();
+
+  const bodies = {
+    ios: `
+      <ol class="install-steps">
+        <li>Нажми на значок <b>«Поделиться»</b> внизу экрана в Safari (квадрат со стрелкой вверх).</li>
+        <li>Прокрути вниз и выбери <b>«На экран «Домой»»</b>.</li>
+        <li>Нажми <b>«Добавить»</b> в правом верхнем углу.</li>
+      </ol>`,
+    android: `<p class="screen-sub">В Chrome обычно само появляется баннер «Добавить на главный экран». Если нет — открой меню (три точки в углу) → <b>«Установить приложение»</b>.</p>`,
+    desktop: `<p class="screen-sub">На компьютере этот шаг необязателен — он в первую очередь для телефона. Можно просто продолжить, а на телефоне установить позже.</p>`
+  };
+
+  document.getElementById('app').innerHTML = `
+    <div class="auth-wrap"><div class="auth-card">
+      <h1 class="display screen-title">Установи как приложение</h1>
+      <p class="screen-sub">Тренер сможет писать тебе даже когда телефон заблокирован — уведомления работают только из установленного приложения, не из вкладки браузера.</p>
+      ${bodies[platform]}
+      <button class="btn accent-lg block" id="goNext" style="margin-top:22px;">Готово</button>
+      <button class="btn ghost block" id="skipInstall" style="margin-top:10px;">Пропустить, сделаю позже</button>
+    </div></div>`;
+
+  document.getElementById('goNext').onclick = () => { location.hash = '#/onboarding'; };
+  document.getElementById('skipInstall').onclick = () => { location.hash = '#/onboarding'; };
+}
+
 function viewPromo() {
   document.getElementById('app').innerHTML = `
     <div class="auth-wrap"><div class="auth-card">
@@ -251,7 +305,7 @@ function viewRegister() {
       });
       Api.setToken(r.accessToken);
       Api.setUserId(r.userId);
-      location.hash = '#/onboarding';
+      location.hash = '#/install-app';
     } catch (e) { document.getElementById('err').textContent = e.message; }
   };
 }
@@ -1797,9 +1851,11 @@ function resizeImageToDataUrl(file, size) {
 /* ---------------- ROUTER ---------------- */
 
 const routes = {
+  '#/intro': viewIntro,
   '#/promo': viewPromo,
   '#/login': viewLogin,
   '#/register': viewRegister,
+  '#/install-app': viewInstallApp,
   '#/onboarding': viewOnboarding,
   '#/agent': viewAgent,
   '#/plan': viewPlan,
@@ -1808,15 +1864,15 @@ const routes = {
 };
 
 async function router() {
-  let hash = location.hash || '#/promo';
-  const entryRoutes = ['#/promo', '#/login', '#/register'];
-  const protectedRoutes = ['#/agent', '#/plan', '#/chats', '#/profile', '#/onboarding'];
+  let hash = location.hash || '#/intro';
+  const entryRoutes = ['#/intro', '#/promo', '#/login', '#/register'];
+  const protectedRoutes = ['#/agent', '#/plan', '#/chats', '#/profile', '#/onboarding', '#/install-app'];
 
   if (!Api.getToken()) {
     const ok = await Api.tryRefresh();
     if (ok && entryRoutes.includes(hash)) {
       // Сессия жива (например, приложение открыли заново с экрана домой) —
-      // не показываем PIN/вход заново, а сразу ведём внутрь приложения.
+      // не показываем интро/PIN/вход заново, а сразу ведём внутрь приложения.
       location.hash = '#/agent';
       return;
     }
@@ -1825,7 +1881,7 @@ async function router() {
       return;
     }
   }
-  (routes[hash] || viewPromo)();
+  (routes[hash] || viewIntro)();
 }
 
 window.addEventListener('hashchange', router);

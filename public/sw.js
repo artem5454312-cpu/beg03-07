@@ -1,6 +1,6 @@
 // Service worker: даёт установить приложение на экран домой и работать чуть быстрее.
 // Версия кеша бампается при каждом изменении — старый кеш сам удаляется.
-const CACHE = 'fitpulse-v15';
+const CACHE = 'fitpulse-v16';
 const SHELL = ['/css/style.css', '/js/api.js', '/js/app.js', '/manifest.json'];
 
 self.addEventListener('install', (e) => {
@@ -38,8 +38,8 @@ self.addEventListener('push', (e) => {
   const data = e.data ? e.data.json() : { title: 'PULSE', body: 'У тебя новое уведомление' };
   e.waitUntil(self.registration.showNotification(data.title || 'PULSE', {
     body: data.body,
-    icon: '/icons/icon.svg',
-    badge: '/icons/icon.svg',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
     tag: data.type || 'general',
     data: { url: '/#/agent' }
   }));

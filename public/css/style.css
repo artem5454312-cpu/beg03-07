@@ -442,3 +442,17 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 .unlock-hold.holding .unlock-fill{ transition:transform var(--hold-ms,1200ms) linear; transform:scaleX(1); }
 .unlock-label{ position:relative; z-index:1; }
 .unlock-hold.holding .unlock-label{ color:var(--lime-ink); }
+
+/* ---- Инструкция "установи как приложение" ---- */
+.install-steps{ list-style:none; padding:0; margin:0 0 6px; counter-reset:step; }
+.install-steps li{
+  position:relative; padding:10px 0 10px 38px; font-size:14.5px; line-height:1.5;
+  border-top:1px solid var(--line);
+}
+.install-steps li:last-child{ border-bottom:1px solid var(--line); }
+.install-steps li::before{
+  counter-increment:step; content:counter(step);
+  position:absolute; left:0; top:10px; width:26px; height:26px; border-radius:50%;
+  background:var(--lime); color:var(--lime-ink); font-weight:800; font-size:13px;
+  display:flex; align-items:center; justify-content:center;
+}

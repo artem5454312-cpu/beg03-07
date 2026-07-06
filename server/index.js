@@ -50,6 +50,7 @@ const chatsRoutes = require('./routes/chats');
 const profileRoutes = require('./routes/profile');
 const adminRoutes = require('./routes/admin');
 const notificationsRoutes = require('./routes/notifications');
+const ownerRoutes = require('./routes/owner');
 
 app.use('/api/auth/promo', rateLimit(10, 10 * 60 * 1000));
 app.use('/api/auth/login', rateLimit(15, 10 * 60 * 1000));
@@ -61,6 +62,7 @@ app.use('/api/chats', chatsRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/owner', ownerRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 

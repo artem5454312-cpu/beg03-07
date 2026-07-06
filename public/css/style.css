@@ -207,6 +207,7 @@ main{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; max-widt
 .event-title{ font-family:'Barlow Semi Condensed',sans-serif; font-weight:800; font-size:17px; text-transform:uppercase; letter-spacing:.01em; }
 .event-when{ font-size:13px; color:var(--text-dim); margin-top:2px; }
 .event-organizer{ font-size:12px; color:var(--text-dim2); margin-top:4px; }
+.event-distances{ font-size:13.5px; font-weight:600; color:var(--lime); margin-top:6px; }
 .rsvp-row{ display:flex; gap:8px; margin-bottom:12px; }
 .rsvp-btn{
   flex:1; padding:11px; border-radius:14px; border:1px solid var(--line);

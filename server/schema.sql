@@ -158,6 +158,9 @@ CREATE TABLE IF NOT EXISTS event_participants (
 );
 ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS response TEXT NOT NULL DEFAULT 'going';
 ALTER TABLE events ADD COLUMN IF NOT EXISTS photo_url TEXT;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS city TEXT;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS distance_info TEXT; -- например "5 км, 10 км, 21 км"
+ALTER TABLE events ADD COLUMN IF NOT EXISTS link_url TEXT; -- ссылка на сайт забега
 
 CREATE TABLE IF NOT EXISTS direct_chats (
   id SERIAL PRIMARY KEY,

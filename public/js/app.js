@@ -134,7 +134,7 @@ function startUnreadPolling() {
 const TAB_ICONS = {
   agent: '<circle cx="12" cy="11" r="8"/><path d="M9 11h.01M12 11h.01M15 11h.01"/>',
   plan: '<rect x="4" y="5" width="16" height="15" rx="3"/><path d="M8 3v4M16 3v4M4 10h16"/>',
-  chats: '<circle cx="9" cy="9" r="3.2"/><circle cx="16.5" cy="10.5" r="2.6"/><path d="M3.5 19c0-3 2.5-5.5 5.5-5.5s5.5 2.5 5.5 5.5"/>',
+  chats: '<path d="M5 3v18"/><path d="M5 4h11l-2.5 3.5L16 11H5"/>',
   profile: '<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8"/>'
 };
 
@@ -153,7 +153,7 @@ function renderShell(activeTab) {
       ${tabs.map(id => `
         <button data-tab="${id}" aria-label="${id}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${TAB_ICONS[id]}</svg>
-          ${id === 'chats' || id === 'agent' ? `<span class="tab-badge" id="badge-${id}"></span>` : ''}
+          ${id === 'agent' ? `<span class="tab-badge" id="badge-${id}"></span>` : ''}
         </button>`).join('')}
     </div>
   `;
@@ -662,6 +662,21 @@ function addDaysToDateStr(dateStr, delta) {
   return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
 }
 
+// Время сообщения по Москве — используется в чате с агентом.
+function formatMskTime(isoTimestamp) {
+  return new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' }).format(new Date(isoTimestamp));
+}
+
+// "Сегодня" / "Вчера" / "26 июля" — подпись-разделитель дня в чате с агентом.
+function dayDividerLabel(dayIso) {
+  const today = mskDateStr();
+  const yesterday = addDaysToDateStr(today, -1);
+  if (dayIso === today) return 'Сегодня';
+  if (dayIso === yesterday) return 'Вчера';
+  const [y, m, d] = dayIso.split('-').map(Number);
+  return `${d} ${MONTHS_RU[m - 1]}`;
+}
+
 // Разбивает текстовое описание плана от агента на два блока: логика плана и питание,
 // чтобы показать их отдельными акцентными карточками, а не одной стеной текста.
 function splitPlanSummary(raw) {
@@ -695,23 +710,7 @@ function daysBetweenStr(a, b) {
   return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86400000);
 }
 
-async function viewPlan() {
-  renderShell('plan');
-  const main = document.getElementById('main');
-  main.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;">
-      <h1 class="display screen-title" style="margin-bottom:0;">План</h1>
-      <button class="btn" id="addBtn">+ Добавить</button>
-    </div>
-    <div id="goalHero"></div>
-    <div id="goalExtra"></div>
-    <div id="weekStrip"></div>
-    <div id="blocks"></div>`;
-
-  let cachedGoals = [];
-
-  /* ---------- Хиро активной цели + инфографика ---------- */
-
+// Хиро активной цели + инфографика (теперь показывается на вкладке "Профиль", не в "Плане")
   function renderGoalHero(g) {
     const total = g.workouts.length;
     const done = g.workouts.filter(w => w.status === 'done').length;
@@ -844,6 +843,19 @@ async function viewPlan() {
     return { top: topHtml, extra: heroInfographics };
   }
 
+async function viewPlan() {
+  renderShell('plan');
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;">
+      <h1 class="display screen-title" style="margin-bottom:0;">План</h1>
+      <button class="btn" id="addBtn">+ Добавить</button>
+    </div>
+    <div id="weekStrip"></div>
+    <div id="blocks"></div>`;
+
+  let cachedGoals = [];
+
   /* ---------- Недельная полоска-календарь (без изменений) ---------- */
 
   function renderWeekStrip(goals) {
@@ -885,17 +897,11 @@ async function viewPlan() {
     cachedGoals = goals;
 
     if (!goals.length) {
-      document.getElementById('goalHero').innerHTML = '';
-      document.getElementById('goalExtra').innerHTML = '';
       document.getElementById('weekStrip').innerHTML = '';
       document.getElementById('blocks').innerHTML = '<p class="screen-sub">Пока нет ни одного плана — напиши агенту, и он его составит.</p>';
       return;
     }
 
-    const activeGoal = goals.find(g => g.status === 'active') || goals[0];
-    const hero = renderGoalHero(activeGoal);
-    document.getElementById('goalHero').innerHTML = hero.top;
-    document.getElementById('goalExtra').innerHTML = hero.extra;
     renderWeekStrip(goals);
 
     const box = document.getElementById('blocks');
@@ -1290,384 +1296,11 @@ async function viewPlan() {
 
 const REACTION_EMOJIS = ['👍','❤️','😂','🔥','😮','😢'];
 
-let ws;
-async function viewChats() {
-  renderShell('chats');
-  const main = document.getElementById('main');
-  main.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:8px;">
-      <h1 class="display screen-title" style="margin-bottom:0;">Общий чат</h1>
-      <button class="btn ghost" id="memberCount" style="padding:6px 12px;white-space:nowrap;">…</button>
-    </div>
-    <p class="screen-sub">События и сообщения идут вместе, одной лентой.</p>
-    <div id="joinBanner"></div>
-    <div class="chat-log" id="log"></div>
-    <div id="replyPreview"></div>
-    <div id="composerBox"></div>`;
-
-  let replyingTo = null;
-  function cancelReply() { replyingTo = null; renderReplyPreview(); }
-  function renderReplyPreview() {
-    const box = document.getElementById('replyPreview');
-    if (!replyingTo) { box.innerHTML = ''; return; }
-    const author = replyingTo.name || replyingTo.username || 'Аноним';
-    const snippet = replyingTo.content.startsWith('IMG::') ? '📷 Фото'
-      : replyingTo.content.startsWith('AUD::') ? '🎤 Голосовое'
-      : replyingTo.content;
-    box.innerHTML = `
-      <div class="reply-bar">
-        <div class="reply-bar-text"><b>${escapeHtml(author)}</b>: ${escapeHtml(snippet).slice(0, 80)}</div>
-        <button class="reply-bar-close" aria-label="Отменить ответ">✕</button>
-      </div>`;
-    box.querySelector('.reply-bar-close').onclick = cancelReply;
-  }
-
-  const data = await Api.get('/chats/city');
-  let messages = data.messages;
-  let events = await Api.get('/chats/city/events');
-  let isMember = data.isMember;
-
-  document.getElementById('memberCount').textContent = `${data.memberCount} ${pluralMembers(data.memberCount)}`;
-  document.getElementById('memberCount').onclick = openMembersList;
-
-  async function openMembersList() {
-    const members = await Api.get('/chats/city/members');
-    showModal(`
-      <h2 style="margin-bottom:12px;">Участники (${members.length})</h2>
-      ${members.map(m => `
-        <div class="member-row">
-          ${avatarHtml(m.name, m.username, m.photo_url)}
-          <div>
-            <div class="name">${escapeHtml(m.name || m.username)}</div>
-            <div class="username">@${escapeHtml(m.username)}</div>
-          </div>
-        </div>`).join('') || '<p class="screen-sub">Пока никого нет.</p>'}
-    `);
-  }
-
-  function renderComposer() {
-    const box = document.getElementById('composerBox');
-    if (!isMember) {
-      document.getElementById('joinBanner').innerHTML = `
-        <div class="join-banner card">
-          <p>Вступи в общий чат, чтобы писать сообщения, реагировать и участвовать в событиях.</p>
-          <button class="btn accent-lg" id="joinBtn">Вступить</button>
-        </div>`;
-      document.getElementById('joinBtn').onclick = async () => {
-        await Api.post('/chats/city/join', {});
-        isMember = true;
-        const countBtn = document.getElementById('memberCount');
-        countBtn.textContent = (parseInt(countBtn.textContent, 10) + 1) + ' ' + pluralMembers(parseInt(countBtn.textContent, 10) + 1);
-        document.getElementById('joinBanner').innerHTML = '';
-        renderComposer();
-        connectSocket();
-        showToast('Добро пожаловать в чат!');
-      };
-      box.innerHTML = '';
-      return;
-    }
-    document.getElementById('joinBanner').innerHTML = '';
-    box.innerHTML = `
-      <div class="chat-input">
-        <input type="file" accept="image/*" id="photoFile" style="display:none;">
-        <button class="btn icon" id="plusBtn" aria-label="Добавить"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
-        <textarea id="text" placeholder="Написать в чат…"></textarea>
-        <button class="btn icon mic" id="micSend" aria-label="Голос или отправить"></button>
-      </div>`;
-
-    document.getElementById('plusBtn').onclick = () => {
-      showModal(`
-        <button class="btn block" id="actPhoto" style="margin-bottom:10px;">📷 Фото</button>
-        <button class="btn ghost block" id="actEvent">📅 Событие</button>
-      `);
-      document.getElementById('actPhoto').onclick = () => { closeModal(); document.getElementById('photoFile').click(); };
-      document.getElementById('actEvent').onclick = () => { closeModal(); createEventFlow(); };
-    };
-    document.getElementById('photoFile').onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      try {
-        const dataUrl = await resizePhotoToDataUrl(file, 640);
-        ws.send(JSON.stringify({ type: 'message', content: 'IMG::' + dataUrl, replyTo: replyingTo?.id || null }));
-        cancelReply();
-      } catch { showToast('Не удалось прикрепить фото'); }
-      e.target.value = '';
-    };
-
-    setupComposer({
-      textarea: document.getElementById('text'),
-      micSendBtn: document.getElementById('micSend'),
-      onSend: (content) => {
-        ws.send(JSON.stringify({ type: 'message', content, replyTo: replyingTo?.id || null }));
-        cancelReply();
-      },
-      onVoice: async (blob) => {
-        // В общем чате голосовое отправляется как есть — остальные могут прослушать,
-        // ничего не транскрибируется (в отличие от чата с агентом).
-        const dataUrl = await blobToDataUrl(blob);
-        ws.send(JSON.stringify({ type: 'message', content: 'AUD::' + dataUrl, replyTo: replyingTo?.id || null }));
-        cancelReply();
-      }
-    });
-  }
-
-  // "Сегодня" / "Вчера" / "26 июля" — подпись-разделитель дня определена ниже как общая функция
-
-  function timeline() {
-    const items = [
-      ...messages.map(m => ({ ts: new Date(m.created_at).getTime(), html: renderCityMsg(m) })),
-      ...events.map(e => ({ ts: new Date(e.created_at || e.event_date).getTime(), html: renderEventCard(e) }))
-    ];
-    items.sort((a, b) => a.ts - b.ts);
-
-    let out = '', lastDay = null;
-    for (const item of items) {
-      const dayIso = mskDateStr(new Date(item.ts));
-      if (dayIso !== lastDay) {
-        out += `<div class="date-divider"><span>${dayDividerLabel(dayIso)}</span></div>`;
-        lastDay = dayIso;
-      }
-      out += item.html;
-    }
-    return out;
-  }
-
-  function renderLog(scrollToBottom = false) {
-    const log = document.getElementById('log');
-    const prevScrollTop = main.scrollTop;
-    const prevScrollHeight = main.scrollHeight;
-    log.innerHTML = timeline();
-    wireLogInteractions();
-    if (scrollToBottom) {
-      main.scrollTop = main.scrollHeight;
-    } else {
-      // Реакция/правка/RSVP не должны утаскивать ленту вниз — сохраняем то же место чтения,
-      // компенсируя изменение высоты контента выше текущей точки прокрутки.
-      main.scrollTop = prevScrollTop + (main.scrollHeight - prevScrollHeight);
-    }
-    Api.post('/notifications/mark-read', { scope: 'chat' }).then(refreshUnreadCounts).catch(() => {});
-  }
-
-  function wireLogInteractions() {
-    document.querySelectorAll('.chat-photo').forEach(img => {
-      img.onclick = () => openPhotoViewer(img.src);
-    });
-    document.querySelectorAll('.msg-more').forEach(btn => {
-      btn.onclick = () => {
-        const msgId = btn.closest('[data-msg-id]').dataset.msgId;
-        const msg = messages.find(m => String(m.id) === String(msgId));
-        if (msg) openMessageActions(msg);
-      };
-    });
-    document.querySelectorAll('.rsvp-btn').forEach(btn => {
-      btn.onclick = async () => {
-        const card = btn.closest('.event-card');
-        try {
-          await Api.post(`/chats/events/${card.dataset.event}/join`, { response: btn.dataset.response });
-          events = await Api.get('/chats/city/events');
-          renderLog();
-        } catch (e) { showToast(e.message); }
-      };
-    });
-    document.querySelectorAll('.delete-event').forEach(btn => {
-      btn.onclick = async () => {
-        if (!confirm('Удалить это событие? Отменить будет нельзя.')) return;
-        await Api.post(`/chats/events/${btn.dataset.event}/cancel`, {});
-        events = events.filter(e => String(e.id) !== String(btn.dataset.event));
-        renderLog();
-      };
-    });
-    document.querySelectorAll('.reaction-pill').forEach(pill => {
-      pill.onclick = () => {
-        haptic(HAPTIC.reaction);
-        const msgId = pill.closest('[data-msg-id]').dataset.msgId;
-        ws.send(JSON.stringify({ type: 'react', id: msgId, emoji: pill.dataset.emoji }));
-      };
-    });
-    // Тап по тексту сообщения — ответить (цитата), как в Telegram
-    document.querySelectorAll('.city-bubble').forEach(el => {
-      el.addEventListener('click', () => {
-        const msgId = el.closest('[data-msg-id]').dataset.msgId;
-        const msg = messages.find(m => String(m.id) === String(msgId));
-        if (msg) { replyingTo = msg; renderReplyPreview(); document.getElementById('text')?.focus(); }
-      });
-    });
-    // Зажми сообщение — реакции выскакивают прямо над ним, а не отдельным листом снизу
-    document.querySelectorAll('.city-bubble-wrap').forEach(wrap => {
-      attachLongPress(wrap, () => {
-        const msgId = wrap.closest('[data-msg-id]').dataset.msgId;
-        const msg = messages.find(m => String(m.id) === String(msgId));
-        if (msg) {
-          haptic(HAPTIC.select);
-          showReactionPopup(wrap, (emoji) => {
-            haptic(HAPTIC.reaction);
-            ws.send(JSON.stringify({ type: 'react', id: msg.id, emoji }));
-          });
-        }
-      });
-    });
-    wireVoicePlayers(document.getElementById('log'));
-  }
-
-  function openMessageActions(msg) {
-    const isMedia = msg.content.startsWith('IMG::') || msg.content.startsWith('AUD::');
-    showModal(`
-      ${!isMedia ? '<button class="btn block" id="editMsg" style="margin-bottom:10px;">Изменить</button>' : ''}
-      <button class="btn ghost block" id="deleteMsg" style="color:var(--brick);border-color:var(--brick);">Удалить у всех</button>
-    `);
-    if (!isMedia) {
-      document.getElementById('editMsg').onclick = () => {
-        closeModal();
-        showModal(`
-          <h2 style="margin-bottom:10px;">Изменить сообщение</h2>
-          <textarea id="editText" style="width:100%;min-height:90px;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--surface);color:var(--text);">${escapeHtml(msg.content)}</textarea>
-          <button class="btn block" id="saveEdit" style="margin-top:12px;">Сохранить</button>
-        `);
-        const editTextEl = document.getElementById('editText');
-        autoGrowTextarea(editTextEl, 300);
-        editTextEl.addEventListener('input', () => autoGrowTextarea(editTextEl, 300));
-        document.getElementById('saveEdit').onclick = () => {
-          const val = document.getElementById('editText').value.trim();
-          if (val) ws.send(JSON.stringify({ type: 'edit', id: msg.id, content: val }));
-          closeModal();
-        };
-      };
-    }
-    document.getElementById('deleteMsg').onclick = () => {
-      closeModal();
-      if (confirm('Удалить сообщение у всех? Отменить будет нельзя.')) {
-        ws.send(JSON.stringify({ type: 'delete', id: msg.id }));
-      }
-    };
-  }
-
-  async function createEventFlow() {
-    showModal(`
-      <h2 style="margin-bottom:14px;">Новое событие</h2>
-      <div class="field"><label>Название</label><input id="evTitle" type="text" placeholder="Совместная пробежка"></div>
-      <div class="field"><label>Дата и время</label><input id="evDate" type="datetime-local" value="${mskDateStr()}T19:00"></div>
-      <div class="field">
-        <label>Фото (необязательно)</label>
-        <input type="file" accept="image/*" id="evPhotoFile" style="display:none;">
-        <button class="btn ghost block" id="evPhotoBtn" type="button">📷 Добавить фото</button>
-        <div id="evPhotoPreviewBox"></div>
-      </div>
-      <button class="btn accent-lg" id="evSubmit" style="margin-top:6px;">Создать</button>
-    `);
-
-    let photoDataUrl = null;
-    document.getElementById('evPhotoBtn').onclick = () => document.getElementById('evPhotoFile').click();
-    document.getElementById('evPhotoFile').onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      try {
-        photoDataUrl = await resizePhotoToDataUrl(file, 900);
-        document.getElementById('evPhotoPreviewBox').innerHTML = `<img src="${photoDataUrl}" style="width:100%;border-radius:12px;margin-top:8px;display:block;">`;
-      } catch { showToast('Не удалось прикрепить фото'); }
-    };
-
-    document.getElementById('evSubmit').onclick = async () => {
-      const title = document.getElementById('evTitle').value.trim();
-      const dateVal = document.getElementById('evDate').value;
-      if (!title || !dateVal) { showToast('Заполни название и дату'); return; }
-      try {
-        await Api.post('/chats/city/events', { title, event_date: dateVal, photo_url: photoDataUrl });
-        closeModal();
-        showToast('Событие создано');
-        events = await Api.get('/chats/city/events');
-        renderLog(true);
-      } catch (e) { showToast(e.message); }
-    };
-  }
-
-  renderComposer();
-  renderLog(true);
-
-  function connectSocket() {
-    const token = Api.getToken();
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws?token=${token}&room=city:${data.chat.id}`);
-    ws.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data);
-      if (msg.type === 'message') {
-        messages.push(msg);
-        renderLog(true);
-      } else if (msg.type === 'edit') {
-        const m = messages.find(x => String(x.id) === String(msg.id));
-        if (m) { m.content = msg.content; renderLog(); }
-      } else if (msg.type === 'delete') {
-        messages = messages.filter(x => String(x.id) !== String(msg.id));
-        renderLog();
-      } else if (msg.type === 'reactions') {
-        const m = messages.find(x => String(x.id) === String(msg.id));
-        if (m) {
-          const myId = String(Api.getUserId());
-          m.reactions = msg.reactions.map(r => ({ emoji: r.emoji, count: r.count, mine: r.userIds.map(String).includes(myId) }));
-          renderLog();
-        }
-      } else if (msg.type === 'error') {
-        showToast(msg.error);
-      }
-    };
-  }
-  if (isMember) connectSocket();
-}
-
-function pluralMembers(n) {
-  const mod10 = n % 10, mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return 'участник';
-  if ([2,3,4].includes(mod10) && ![12,13,14].includes(mod100)) return 'участника';
-  return 'участников';
-}
-
-// Долгий тап (зажатие) — для вызова меню реакций на сообщении
-function attachLongPress(el, callback, ms = 450) {
-  let timer = null, moved = false, startX = 0, startY = 0, justFired = false;
-  el.addEventListener('pointerdown', (e) => {
-    moved = false;
-    startX = e.clientX; startY = e.clientY;
-    timer = setTimeout(() => { if (!moved) { justFired = true; callback(e); } }, ms);
-  });
-  const cancel = () => clearTimeout(timer);
-  el.addEventListener('pointerup', cancel);
-  el.addEventListener('pointerleave', cancel);
-  el.addEventListener('pointermove', (e) => {
-    if (Math.abs(e.clientX - startX) > 10 || Math.abs(e.clientY - startY) > 10) { moved = true; cancel(); }
-  });
-  // Долгое нажатие уже открыло реакции — гасим последующий click, чтобы заодно
-  // не сработал тап-ответ на том же жесте.
-  el.addEventListener('click', (e) => {
-    if (justFired) { e.stopPropagation(); e.preventDefault(); justFired = false; }
-  }, true);
-}
-
-// Всплывающие реакции прямо над сообщением (не отдельный лист внизу экрана, как раньше)
-function showReactionPopup(anchorEl, onPick) {
-  document.querySelectorAll('.reaction-popup').forEach(el => el.remove());
-  const rect = anchorEl.getBoundingClientRect();
-  const popup = document.createElement('div');
-  popup.className = 'reaction-popup';
-  popup.innerHTML = REACTION_EMOJIS.map(e => `<button class="reaction-opt" data-emoji="${e}">${e}</button>`).join('');
-  document.body.appendChild(popup);
-
-  const popupWidth = popup.offsetWidth, popupHeight = popup.offsetHeight;
-  let left = rect.left + rect.width / 2 - popupWidth / 2;
-  left = Math.min(Math.max(8, left), window.innerWidth - popupWidth - 8);
-  let top = rect.top - popupHeight - 10;
-  if (top < 8) top = rect.bottom + 10; // если сверху не влезает — показываем снизу
-  popup.style.left = left + 'px';
-  popup.style.top = top + 'px';
-
-  popup.querySelectorAll('.reaction-opt').forEach(btn => {
-    btn.onclick = (e) => { e.stopPropagation(); onPick(btn.dataset.emoji); popup.remove(); };
-  });
-  setTimeout(() => {
-    const closeOnOutside = (e) => {
-      if (!popup.contains(e.target)) { popup.remove(); document.removeEventListener('pointerdown', closeOnOutside); }
-    };
-    document.addEventListener('pointerdown', closeOnOutside);
-  }, 60);
-}
+/* ---------------- EVENTS (замена общего чата) ---------------- */
+// Раньше здесь был общий чат — снесли по решению: у него не было ясной цели, кроме
+// флуда. Вместо него — лента реальных событий (забегов), которые вручную добавляет
+// владелец приложения через "Профиль → Управление". Обычные пользователи только
+// смотрят и отмечаются "Буду / Не буду".
 
 function openPhotoViewer(url) {
   const ov = document.createElement('div');
@@ -1677,173 +1310,66 @@ function openPhotoViewer(url) {
   document.body.appendChild(ov);
 }
 
-// Псевдослучайные, но стабильные "столбики" волны — для декоративного плеера голосового
-function voiceBars(seed) {
-  let x = (seed || 1) % 100000 + 1, bars = '';
-  for (let i = 0; i < 24; i++) {
-    x = (x * 9301 + 49297) % 233280;
-    bars += `<span class="vbar" style="height:${18 + Math.floor((x / 233280) * 82)}%"></span>`;
-  }
-  return bars;
-}
+async function viewEvents() {
+  renderShell('chats');
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <h1 class="display screen-title" style="margin-bottom:4px;">События</h1>
+    <p class="screen-sub">Реальные забеги и совместные тренировки — добавляет команда PULSE.</p>
+    <div id="eventsFeed"></div>`;
 
-const PLAY_ICON = '<path d="M7 5l12 7-12 7V5z"/>';
-const PAUSE_ICON = '<path d="M7 5h3v14H7zM14 5h3v14h-3z"/>';
-
-// Плеер голосового сообщения в стиле Telegram: своя "волна" вместо нативных браузерных контролов
-function renderVoiceMsg(id, url) {
-  return `
-    <div class="voice-msg" data-audio-msg="${id}">
-      <button class="voice-play" aria-label="Слушать"><svg viewBox="0 0 24 24" fill="currentColor">${PLAY_ICON}</svg></button>
-      <div class="voice-wave">${voiceBars(id)}</div>
-      <span class="voice-time mono">0:00</span>
-      <audio preload="metadata" src="${url}"></audio>
-    </div>`;
-}
-
-function wireVoicePlayers(root) {
-  root.querySelectorAll('.voice-msg').forEach(el => {
-    if (el.dataset.wired) return;
-    el.dataset.wired = '1';
-    const audio = el.querySelector('audio');
-    const btn = el.querySelector('.voice-play');
-    const timeEl = el.querySelector('.voice-time');
-    const bars = [...el.querySelectorAll('.vbar')];
-
-    function fmt(s) {
-      s = Math.max(0, Math.round(s || 0));
-      return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  async function load() {
+    const feed = document.getElementById('eventsFeed');
+    let events;
+    try {
+      events = await Api.get('/chats/city/events');
+    } catch {
+      feed.innerHTML = '<p class="screen-sub">Не удалось загрузить события.</p>';
+      return;
     }
-    audio.addEventListener('loadedmetadata', () => {
-      if (isFinite(audio.duration)) timeEl.textContent = fmt(audio.duration);
+    if (!events.length) {
+      feed.innerHTML = '<p class="screen-sub">Пока нет событий — загляни попозже.</p>';
+      return;
+    }
+    feed.innerHTML = events.map(renderEventFeedCard).join('');
+
+    feed.querySelectorAll('.event-photo').forEach(img => {
+      img.onclick = () => openPhotoViewer(img.src);
     });
-    audio.addEventListener('timeupdate', () => {
-      timeEl.textContent = '-' + fmt(audio.duration - audio.currentTime);
-      const activeCount = Math.round((audio.currentTime / (audio.duration || 1)) * bars.length);
-      bars.forEach((b, i) => b.classList.toggle('played', i < activeCount));
+    feed.querySelectorAll('.rsvp-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const card = btn.closest('.event-card');
+        try {
+          await Api.post(`/chats/events/${card.dataset.event}/join`, { response: btn.dataset.response });
+          haptic(HAPTIC.select);
+          load();
+        } catch (e) { showToast(e.message); }
+      };
     });
-    audio.addEventListener('ended', () => {
-      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor">${PLAY_ICON}</svg>`;
-      timeEl.textContent = fmt(audio.duration);
-      bars.forEach(b => b.classList.remove('played'));
-    });
-    btn.onclick = () => {
-      if (audio.paused) {
-        document.querySelectorAll('.voice-msg audio').forEach(a => { if (a !== audio) a.pause(); });
-        audio.play();
-        btn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor">${PAUSE_ICON}</svg>`;
-      } else {
-        audio.pause();
-        btn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor">${PLAY_ICON}</svg>`;
-      }
-    };
-  });
+  }
+
+  await load();
 }
 
-function renderEventCard(ev) {
-  const total = ev.going.length + ev.notGoing.length;
-  const pct = total ? Math.round((ev.going.length / total) * 100) : 0;
+function renderEventFeedCard(ev) {
   const d = new Date(ev.event_date);
   const when = `${d.getDate()} ${MONTHS_RU[d.getMonth()]} · ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  const total = ev.going.length + ev.notGoing.length;
+  const pct = total ? Math.round((ev.going.length / total) * 100) : 0;
   return `
   <div class="card event-card" data-event="${ev.id}">
-    ${ev.photo_url ? `<img class="event-photo" src="${ev.photo_url}" alt="фото события">` : ''}
-    <div class="event-head">
-      <div>
-        <div class="event-title">${escapeHtml(ev.title)}</div>
-        <div class="event-when">${when} (${WEEKDAYS_RU[d.getDay()]})</div>
-        ${ev.creatorName ? `<div class="event-organizer">Организатор: ${escapeHtml(ev.creatorName)}</div>` : ''}
-      </div>
-      ${ev.isMine ? `<button class="icon-btn delete-event" data-event="${ev.id}" title="Удалить событие">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>
-      </button>` : ''}
-    </div>
-    <div class="rsvp-row">
+    ${ev.photo_url ? `<img class="event-photo" src="${ev.photo_url}" alt="${escapeHtml(ev.title)}">` : ''}
+    <div class="event-title" style="font-size:18px;">${escapeHtml(ev.title)}</div>
+    <div class="event-when"><b>${when}</b> (${WEEKDAYS_RU[d.getDay()]})${ev.city ? ` · ${escapeHtml(ev.city)}` : ''}</div>
+    ${ev.distanceInfo ? `<div class="event-distances">${escapeHtml(ev.distanceInfo)}</div>` : ''}
+    ${ev.creatorName ? `<div class="event-organizer">Организатор: ${escapeHtml(ev.creatorName)}</div>` : ''}
+    <div class="rsvp-row" style="margin-top:12px;">
       <button class="rsvp-btn going ${ev.myResponse === 'going' ? 'active' : ''}" data-response="going">Буду (${ev.going.length})</button>
       <button class="rsvp-btn not-going ${ev.myResponse === 'not_going' ? 'active' : ''}" data-response="not_going">Не буду (${ev.notGoing.length})</button>
     </div>
-    ${total ? `<div class="rsvp-bar"><div class="rsvp-bar-fill" style="width:${pct}%;"></div></div>
-    <div class="rsvp-names">${pct}% идут ${ev.going.length ? '· <b>Идут:</b> ' + ev.going.map(escapeHtml).join(', ') : ''}${ev.notGoing.length ? ' · <b>Не идут:</b> ' + ev.notGoing.map(escapeHtml).join(', ') : ''}</div>` : ''}
+    ${total ? `<div class="rsvp-bar"><div class="rsvp-bar-fill" style="width:${pct}%;"></div></div>` : ''}
+    ${ev.linkUrl ? `<a href="${escapeHtml(ev.linkUrl)}" target="_blank" rel="noopener" class="btn accent-lg block" style="margin-top:12px;text-decoration:none;">Ссылка на сайт</a>` : ''}
   </div>`;
-}
-
-// Сжимает фото для чата, сохраняя пропорции (в отличие от квадратного аватара)
-function resizePhotoToDataUrl(file, maxDim) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const reader = new FileReader();
-    reader.onload = () => { img.src = reader.result; };
-    reader.onerror = reject;
-    img.onload = () => {
-      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL('image/jpeg', 0.75));
-    };
-    img.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-// Подсвечивает @упоминания в тексте сообщения (после экранирования — безопасно)
-function highlightMentions(escapedText) {
-  return escapedText.replace(/(^|[\s(])@([a-zA-Zа-яА-Я0-9_]{2,32})/g, '$1<span class="mention">@$2</span>');
-}
-
-// "Сегодня" / "Вчера" / "26 июля" — подпись-разделитель дня, как в Telegram.
-// Общая функция — используется и в общем чате, и в чате с агентом.
-function dayDividerLabel(dayIso) {
-  const today = mskDateStr();
-  const yesterday = addDaysToDateStr(today, -1);
-  if (dayIso === today) return 'Сегодня';
-  if (dayIso === yesterday) return 'Вчера';
-  const [y, m, d] = dayIso.split('-').map(Number);
-  return `${d} ${MONTHS_RU[m - 1]}`;
-}
-
-function formatMskTime(isoTimestamp) {
-  return new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' }).format(new Date(isoTimestamp));
-}
-
-function renderCityMsg(m) {
-  const who = m.name || m.username || 'Аноним';
-  const own = Api.getUserId() && String(m.user_id) === String(Api.getUserId());
-  const isImage = m.content.startsWith('IMG::');
-  const isAudio = m.content.startsWith('AUD::');
-  let body;
-  if (isImage) {
-    body = `<img class="chat-photo" src="${m.content.slice(5)}" alt="фото">`;
-  } else if (isAudio) {
-    body = renderVoiceMsg(m.id, m.content.slice(5));
-  } else {
-    body = `<div class="city-bubble">${highlightMentions(escapeHtml(m.content))}</div>`;
-  }
-  const replyHtml = m.replyTo ? (() => {
-    const snippet = m.replyTo.content.startsWith('IMG::') ? '📷 Фото'
-      : m.replyTo.content.startsWith('AUD::') ? '🎤 Голосовое'
-      : m.replyTo.content;
-    return `<div class="reply-quote"><b>${escapeHtml(m.replyTo.author || 'Аноним')}</b><br>${escapeHtml(snippet).slice(0, 100)}</div>`;
-  })() : '';
-  const reactionsHtml = (m.reactions && m.reactions.length)
-    ? `<div class="reaction-row">${m.reactions.map(r => `<span class="reaction-pill ${r.mine ? 'mine' : ''}" data-emoji="${r.emoji}">${r.emoji} ${r.count}</span>`).join('')}</div>`
-    : '';
-  return `
-    <div class="city-row ${own ? 'own' : ''}" data-msg-id="${m.id}">
-      ${avatarHtml(m.name, m.username, m.photo_url)}
-      <div class="city-bubble-wrap">
-        ${!own ? `<div class="city-who">${escapeHtml(who)}</div>` : ''}
-        ${replyHtml}
-        ${body}
-        ${reactionsHtml}
-        <div class="city-meta-row">
-          <span class="city-username">@${escapeHtml(m.username || 'user')}</span>
-          <span class="city-time">${formatMskTime(m.created_at)}</span>
-          ${own ? '<button class="msg-more" aria-label="Действия">⋯</button>' : ''}
-        </div>
-      </div>
-    </div>`;
 }
 
 /* ---------------- PROFILE ---------------- */
@@ -1851,7 +1377,10 @@ function renderCityMsg(m) {
 async function viewProfile() {
   renderShell('profile');
   const main = document.getElementById('main');
-  const [p, a] = await Promise.all([Api.get('/profile'), Api.get('/profile/analytics')]);
+  const [p, a, goals] = await Promise.all([Api.get('/profile'), Api.get('/profile/analytics'), Api.get('/plan/overview')]);
+  const activeGoal = goals.find(g => g.status === 'active') || goals[0] || null;
+  const hero = activeGoal ? renderGoalHero(activeGoal) : { top: '', extra: '' };
+
   main.innerHTML = `
     <div class="avatar-picker">
       <label class="avatar-big" id="avatarPreviewWrap" style="cursor:pointer;">
@@ -1865,6 +1394,8 @@ async function viewProfile() {
       </div>
     </div>
 
+    ${hero.top}
+
     <div class="card">
       <div class="eyebrow" style="margin-bottom:10px;">За всё время</div>
       <div class="stat-row"><span>Тренировок выполнено</span><span class="v">${a.overall.done}/${a.overall.total}</span></div>
@@ -1872,17 +1403,15 @@ async function viewProfile() {
       <div class="stat-row"><span>Совместных тренировок</span><span class="v">${a.sharedWorkouts}</span></div>
     </div>
 
-    ${a.currentGoal ? `
-    <div class="card">
-      <div class="eyebrow" style="margin-bottom:10px;">Текущая цель: ${escapeHtml(a.currentGoal.title)}</div>
-      <div class="stat-row"><span>Прогресс</span><span class="v">${a.currentGoal.done}/${a.currentGoal.total}</span></div>
-    </div>` : ''}
+    ${hero.extra}
 
+    ${p.username === 'Artem1' ? `<button class="btn ghost block" id="ownerBtn" style="margin-bottom:10px;">⚙️ Управление приложением</button>` : ''}
     <button class="btn ghost block" id="pushBtn" style="margin-bottom:10px;">🔔 Включить уведомления</button>
     <a href="https://t.me/artemvereshchagin" target="_blank" rel="noopener" class="btn ghost block" style="margin-bottom:10px;text-decoration:none;">💬 Помощь — написать в Telegram</a>
     <button class="btn ghost block" id="logoutAll">Выйти со всех устройств</button>
   `;
 
+  document.getElementById('ownerBtn')?.addEventListener('click', () => { location.hash = '#/owner'; });
   document.getElementById('pushBtn').onclick = enablePushNotifications;
   updatePushButtonLabel();
 
@@ -1990,7 +1519,153 @@ function resizeImageToDataUrl(file, size) {
   });
 }
 
+// Сжимает фото, сохраняя пропорции (в отличие от квадратного аватара выше) —
+// нужно для фото в чате с агентом и для фото событий в разделе "Управление".
+function resizePhotoToDataUrl(file, maxDim) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => { img.src = reader.result; };
+    reader.onerror = reject;
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.75));
+    };
+    img.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 /* ---------------- ROUTER ---------------- */
+
+/* ---------------- OWNER (только Artem1) ---------------- */
+
+async function viewOwner() {
+  document.getElementById('app').innerHTML = `
+    <div class="topbar">
+      <button class="btn ghost" id="backToProfile" style="padding:6px 10px;">← Профиль</button>
+      <span class="mark">Управление</span>
+    </div>
+    <main id="main" style="max-width:720px;margin:0 auto;padding:22px 16px 60px;"></main>`;
+  document.getElementById('backToProfile').onclick = () => { location.hash = '#/profile'; };
+  const main = document.getElementById('main');
+
+  let stats, users, events;
+  try {
+    [stats, users, events] = await Promise.all([
+      Api.get('/owner/stats'), Api.get('/owner/users'), Api.get('/owner/events')
+    ]);
+  } catch {
+    main.innerHTML = '<p class="screen-sub">Доступ запрещён.</p>';
+    return;
+  }
+
+  function renderOwnerEventCard(ev) {
+    if (ev.cancelled) return '';
+    const d = new Date(ev.event_date);
+    return `<div class="card" style="margin-bottom:10px;">
+      ${ev.photo_url ? `<img class="event-photo" src="${ev.photo_url}" alt="">` : ''}
+      <div style="font-weight:700;">${escapeHtml(ev.title)}</div>
+      <div class="screen-sub" style="margin:4px 0 8px;">${d.getDate()} ${MONTHS_RU[d.getMonth()]} ${ev.city ? '· ' + escapeHtml(ev.city) : ''}</div>
+      ${ev.distance_info ? `<div style="font-size:13px;margin-bottom:8px;">${escapeHtml(ev.distance_info)}</div>` : ''}
+      <button class="btn ghost cancel-event" data-id="${ev.id}" style="color:var(--brick);border-color:var(--brick);">Удалить</button>
+    </div>`;
+  }
+
+  function renderAll() {
+    main.innerHTML = `
+      <h1 class="display screen-title">Управление</h1>
+      <div style="display:flex;gap:8px;margin-bottom:20px;">
+        <div class="card" style="flex:1;text-align:center;margin-bottom:0;"><div class="display" style="font-size:26px;">${stats.users}</div><div class="eyebrow">Пользователей</div></div>
+        <div class="card" style="flex:1;text-align:center;margin-bottom:0;"><div class="display" style="font-size:26px;">${stats.completedWorkouts}</div><div class="eyebrow">Тренировок готово</div></div>
+        <div class="card" style="flex:1;text-align:center;margin-bottom:0;"><div class="display" style="font-size:26px;">${stats.activeEvents}</div><div class="eyebrow">Событий</div></div>
+      </div>
+
+      <h2 class="display" style="font-size:20px;margin-bottom:10px;">Пользователи</h2>
+      <div class="card">
+        ${users.map(u => `
+          <div class="stat-row">
+            <span>${escapeHtml(u.name || u.username)} <span style="color:var(--text-dim);">@${escapeHtml(u.username)}</span> · ${u.done_workouts} трен.</span>
+            <button class="btn ghost user-ban-btn" data-uid="${u.id}" data-blocked="${u.is_blocked}" style="padding:4px 10px;font-size:11px;">${u.is_blocked ? 'Разблокировать' : 'Забанить'}</button>
+          </div>`).join('')}
+      </div>
+
+      <h2 class="display" style="font-size:20px;margin:22px 0 10px;">События (забеги)</h2>
+      <button class="btn accent-lg block" id="addEventBtn" style="margin-bottom:14px;">+ Добавить событие</button>
+      <div id="ownerEventsList">${events.map(renderOwnerEventCard).join('') || '<p class="screen-sub">Пока нет событий.</p>'}</div>
+    `;
+
+    main.querySelectorAll('.user-ban-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const blocked = btn.dataset.blocked === 'true';
+        await Api.post(`/owner/users/${btn.dataset.uid}/${blocked ? 'unban' : 'ban'}`, {});
+        users = await Api.get('/owner/users');
+        renderAll();
+      };
+    });
+    document.getElementById('addEventBtn').onclick = openCreateEventForm;
+    main.querySelectorAll('.cancel-event').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm('Удалить это событие?')) return;
+        await Api.post(`/owner/events/${btn.dataset.id}/cancel`, {});
+        events = await Api.get('/owner/events');
+        renderAll();
+      };
+    });
+  }
+
+  function openCreateEventForm() {
+    showModal(`
+      <h2 style="margin-bottom:14px;">Новое событие</h2>
+      <div class="field"><label>Название</label><input id="evTitle" type="text" placeholder="Забег в Туле"></div>
+      <div class="field"><label>Дата и время</label><input id="evDate" type="datetime-local"></div>
+      <div class="field"><label>Город</label><input id="evCity" type="text" placeholder="Тула"></div>
+      <div class="field"><label>Дистанции / доп. информация</label><input id="evDist" type="text" placeholder="5 км, 10 км, 21 км"></div>
+      <div class="field"><label>Ссылка на сайт</label><input id="evLink" type="url" placeholder="https://..."></div>
+      <div class="field">
+        <label>Фото (необязательно)</label>
+        <input type="file" accept="image/*" id="evPhotoFile" style="display:none;">
+        <button class="btn ghost block" id="evPhotoBtn" type="button">📷 Добавить фото</button>
+        <div id="evPhotoPreviewBox"></div>
+      </div>
+      <button class="btn accent-lg block" id="evSubmit" style="margin-top:6px;">Опубликовать</button>
+    `);
+    let photoDataUrl = null;
+    document.getElementById('evPhotoBtn').onclick = () => document.getElementById('evPhotoFile').click();
+    document.getElementById('evPhotoFile').onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        photoDataUrl = await resizePhotoToDataUrl(file, 900);
+        document.getElementById('evPhotoPreviewBox').innerHTML = `<img src="${photoDataUrl}" style="width:100%;border-radius:12px;margin-top:8px;display:block;">`;
+      } catch { showToast('Не удалось прикрепить фото'); }
+    };
+    document.getElementById('evSubmit').onclick = async () => {
+      const title = document.getElementById('evTitle').value.trim();
+      const dateVal = document.getElementById('evDate').value;
+      if (!title || !dateVal) { showToast('Заполни название и дату'); return; }
+      try {
+        await Api.post('/owner/events', {
+          title, event_date: dateVal,
+          city: document.getElementById('evCity').value.trim(),
+          distance_info: document.getElementById('evDist').value.trim(),
+          link_url: document.getElementById('evLink').value.trim(),
+          photo_url: photoDataUrl
+        });
+        closeModal();
+        showToast('Событие опубликовано');
+        events = await Api.get('/owner/events');
+        renderAll();
+      } catch (e) { showToast(e.message); }
+    };
+  }
+
+  renderAll();
+}
 
 const routes = {
   '#/intro': viewIntro,
@@ -2001,14 +1676,15 @@ const routes = {
   '#/onboarding': viewOnboarding,
   '#/agent': viewAgent,
   '#/plan': viewPlan,
-  '#/chats': viewChats,
-  '#/profile': viewProfile
+  '#/chats': viewEvents,
+  '#/profile': viewProfile,
+  '#/owner': viewOwner
 };
 
 async function router() {
   let hash = location.hash || '#/intro';
   const entryRoutes = ['#/intro', '#/promo', '#/login', '#/register'];
-  const protectedRoutes = ['#/agent', '#/plan', '#/chats', '#/profile', '#/onboarding', '#/install-app'];
+  const protectedRoutes = ['#/agent', '#/plan', '#/chats', '#/profile', '#/onboarding', '#/install-app', '#/owner'];
 
   if (!Api.getToken()) {
     const ok = await Api.tryRefresh();

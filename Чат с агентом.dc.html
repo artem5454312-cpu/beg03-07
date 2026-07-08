@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html,body{ background:#0e0f0c; }
+  a{ color:#cbfb45; text-decoration:none; }
+  a:hover{ color:#b9e83a; }
+  ::-webkit-scrollbar{ display:none; }
+  @keyframes msgIn{ from{ opacity:0; transform:translateY(10px) scale(.97); } to{ opacity:1; transform:none; } }
+  @keyframes fadeIn{ from{ opacity:0; } to{ opacity:1; } }
+  @keyframes typingDot{ 0%,60%,100%{ transform:translateY(0); opacity:.35; } 30%{ transform:translateY(-5px); opacity:1; } }
+  @keyframes chipIn{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
+</style>
+</helmet>
+<div style="min-height:100vh; background:#0e0f0c; display:flex; justify-content:center; font-family:'Barlow',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; color:#f2f4ec; -webkit-font-smoothing:antialiased;">
+  <div style="width:100%; max-width:440px; height:100vh; display:flex; flex-direction:column; border-left:1px solid rgba(255,255,255,0.05); border-right:1px solid rgba(255,255,255,0.05); background:linear-gradient(rgba(14,15,12,0.3), rgba(14,15,12,0.62) 55%, rgba(14,15,12,0.78)), url('assets/bg.png') center 38% / cover no-repeat;">
+
+    <!-- topbar -->
+    <div style="flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-bottom:1px solid rgba(255,255,255,0.08); background:rgba(14,15,12,0.85); backdrop-filter:saturate(160%) blur(20px); -webkit-backdrop-filter:saturate(160%) blur(20px);">
+      <span style="font-family:'Barlow Semi Condensed',sans-serif; font-weight:800; font-size:22px; letter-spacing:.04em; text-transform:uppercase;">PULSE</span>
+      <button style="background:transparent; color:#cbfb45; border:1px solid rgba(255,255,255,0.14); border-radius:980px; padding:6px 12px; font-family:'Barlow Semi Condensed',sans-serif; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:.02em; cursor:pointer; transition:transform .12s ease;" style-active="transform:scale(0.94);">+ Новая цель</button>
+    </div>
+
+    <!-- toolbar -->
+    <div style="flex:0 0 auto; display:flex; justify-content:space-between; padding:12px 16px 6px;">
+      <button onClick="{{ onClear }}" style="background:none; border:none; color:#cbfb45; font-family:'Barlow Semi Condensed',sans-serif; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; cursor:pointer;">Очистить диалог</button>
+    </div>
+
+    <!-- chat log -->
+    <div id="chatLog" style="flex:1 1 auto; overflow-y:auto; display:flex; flex-direction:column; gap:9px; padding:12px 16px 8px;">
+      <div style="display:flex; justify-content:center; margin:6px 0 10px;">
+        <span style="background:#1f221b; border:1px solid rgba(255,255,255,0.08); color:rgba(242,244,236,0.55); font-size:11.5px; font-weight:600; padding:5px 14px; border-radius:980px;">Сегодня</span>
+      </div>
+
+      <sc-for list="{{ messages }}" as="m" hint-placeholder-count="3">
+        <div style="{{ m.rowStyle }}">
+          <div style="{{ m.bubbleStyle }}">
+            <div style="white-space:pre-wrap;">{{ m.text }}</div>
+            <div style="{{ m.timeStyle }}">{{ m.time }}</div>
+          </div>
+        </div>
+      </sc-for>
+
+      <sc-if value="{{ typing }}" hint-placeholder-val="">
+        <div style="align-self:flex-start; max-width:82%;">
+          <div style="display:inline-flex; align-items:center; gap:5px; background:rgba(31,34,27,0.17); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,0.08); padding:12px 15px; border-radius:18px; border-bottom-left-radius:6px; animation:msgIn .25s ease;">
+            <span style="width:7px; height:7px; border-radius:50%; background:#cbfb45; display:inline-block; animation:typingDot 1.1s infinite; animation-delay:0s;"></span>
+            <span style="width:7px; height:7px; border-radius:50%; background:#cbfb45; display:inline-block; animation:typingDot 1.1s infinite; animation-delay:.16s;"></span>
+            <span style="width:7px; height:7px; border-radius:50%; background:#cbfb45; display:inline-block; animation:typingDot 1.1s infinite; animation-delay:.32s;"></span>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+
+    <!-- suggestion chips -->
+    <div style="flex:0 0 auto; display:flex; gap:8px; overflow-x:auto; padding:6px 16px 4px;">
+      <sc-for list="{{ chips }}" as="c" hint-placeholder-count="3">
+        <button onClick="{{ c.onTap }}" style="flex:0 0 auto; background:rgba(26,28,23,0.6); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border:1px solid rgba(255,255,255,0.12); color:#f2f4ec; font-size:13px; font-weight:600; padding:8px 14px; border-radius:980px; cursor:pointer; white-space:nowrap; transition:transform .12s ease, border-color .15s ease; animation:chipIn .35s ease both;" style-active="transform:scale(0.94);" style-hover="border-color:rgba(203,251,69,0.4);">{{ c.label }}</button>
+      </sc-for>
+    </div>
+
+    <!-- input -->
+    <div style="flex:0 0 auto; display:flex; gap:8px; align-items:center; padding:8px 16px 12px;">
+      <button style="width:46px; height:46px; border-radius:50%; flex:0 0 auto; background:rgba(26,28,23,0.6); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border:1px solid rgba(255,255,255,0.12); color:#cbfb45; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:transform .12s ease;" style-active="transform:scale(0.92);"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="8.5" cy="10.5" r="1.5"></circle><path d="M21 15l-5-5-4 4-3-3-4 4"></path></svg></button>
+      <textarea onInput="{{ onInput }}" value="{{ draft }}" placeholder="Напиши агенту…" style="flex:1; border:1px solid rgba(255,255,255,0.12); border-radius:16px; padding:12px 14px; resize:none; height:46px; background:rgba(26,28,23,0.6); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); color:#f2f4ec; font-family:inherit; font-size:15px;"></textarea>
+      <button onClick="{{ onSend }}" style="width:46px; height:46px; border-radius:50%; flex:0 0 auto; background:#cbfb45; color:#12140d; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:transform .12s ease, background .15s ease;" style-active="transform:scale(0.92);">
+        <sc-if value="{{ hasText }}" hint-placeholder-val="">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor"><path d="M3 11l18-7-7 18-2.5-7.5L3 11z"></path></svg>
+        </sc-if>
+        <sc-if value="{{ noText }}" hint-placeholder-val="{{ true }}">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z"></path><path d="M19 11a7 7 0 01-14 0M12 19v3"></path></svg>
+        </sc-if>
+      </button>
+    </div>
+
+    <!-- tabbar -->
+    <div style="flex:0 0 auto; display:flex; justify-content:center; padding:0 0 18px;">
+      <div style="display:flex; gap:6px; background:rgba(26,28,23,0.62); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); padding:6px 8px; border-radius:999px; border:1px solid rgba(255,255,255,0.1); box-shadow:0 14px 32px -8px rgba(0,0,0,0.6);">
+        <div style="width:60px; height:39px; border-radius:19px; display:flex; align-items:center; justify-content:center; background:#cbfb45; color:#12140d;"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="11" r="8"></circle><path d="M9 11h.01M12 11h.01M15 11h.01"></path></svg></div>
+        <a href="План тренировок.dc.html" style="width:60px; height:39px; border-radius:19px; display:flex; align-items:center; justify-content:center; color:rgba(242,244,236,0.5); transition:color .15s ease;" style-hover="color:#cbfb45;"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="3"></rect><path d="M8 3v4M16 3v4M4 10h16"></path></svg></a>
+        <div style="width:60px; height:39px; border-radius:19px; display:flex; align-items:center; justify-content:center; color:rgba(242,244,236,0.5);"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v18"></path><path d="M5 4h11l-2.5 3.5L16 11H5"></path></svg></div>
+        <div style="width:60px; height:39px; border-radius:19px; display:flex; align-items:center; justify-content:center; color:rgba(242,244,236,0.5);"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8"></path></svg></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:440,&quot;height&quot;:880}}">
+class Component extends DCLogic {
+  state = {
+    draft: '',
+    typing: false,
+    seq: 0,
+    messages: [
+      { id: 1, role: 'agent', text: 'Привет! Я твой ИИ-тренер 👋\nК какой цели готовимся?', time: '09:12' },
+      { id: 2, role: 'user', text: 'Хочу пробежать полумарафон через 3 месяца', time: '09:13' },
+      { id: 3, role: 'agent', text: 'Отличная цель! Какой у тебя сейчас беговой объём в неделю?', time: '09:13' }
+    ]
+  };
+
+  REPLIES = [
+    'Понял тебя. Собираю план — распишу тренировки на первую неделю и добавлю их в раздел «План».',
+    'Хорошо! Тогда начнём с базы: 3 пробежки в неделю + одна силовая на ноги и кор.',
+    'Записал. Сегодня по плану лёгкая восстановительная — 30 минут в разговорном темпе.',
+    'Отлично идёшь по графику 🔥 Не забудь про заминку и растяжку после бега.'
+  ];
+
+  nowTime() {
+    return new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' }).format(new Date());
+  }
+
+  scrollDown() {
+    const el = document.getElementById('chatLog');
+    if (el) el.scrollTop = el.scrollHeight;
+  }
+
+  componentDidMount() {
+    this.scrollDown();
+    // лёгкое авто-демо набора сообщения при заходе в чат
+    this._demo = setTimeout(() => {
+      this.setState({ typing: true });
+      this.scrollDown();
+      this._demo2 = setTimeout(() => {
+        this.pushAgent('Готов помочь с планом на сегодня — с чего начнём?');
+      }, 1900);
+    }, 800);
+  }
+  componentDidUpdate() { this.scrollDown(); }
+  componentWillUnmount() { clearTimeout(this._demo); clearTimeout(this._demo2); clearTimeout(this._reply); }
+
+  pushAgent(text) {
+    this.setState(s => ({
+      typing: false,
+      seq: s.seq + 1,
+      messages: [...s.messages, { id: 'a' + Date.now(), role: 'agent', text, time: this.nowTime() }]
+    }));
+  }
+
+  send(text) {
+    const t = (text ?? this.state.draft).trim();
+    if (!t) return;
+    this.setState(s => ({
+      draft: '',
+      typing: true,
+      messages: [...s.messages, { id: 'u' + Date.now(), role: 'user', text: t, time: this.nowTime() }]
+    }));
+    clearTimeout(this._reply);
+    this._reply = setTimeout(() => {
+      const reply = this.REPLIES[this.state.seq % this.REPLIES.length];
+      this.pushAgent(reply);
+    }, 1700 + Math.random() * 800);
+  }
+
+  clear() {
+    this.setState({ messages: [], typing: false, draft: '' });
+  }
+
+  renderVals() {
+    const messages = this.state.messages.map(m => {
+      const isUser = m.role === 'user';
+      return {
+        text: m.text,
+        time: m.time,
+        rowStyle: `display:flex; ${isUser ? 'justify-content:flex-end;' : 'justify-content:flex-start;'}`,
+        bubbleStyle: isUser
+          ? 'width:fit-content; max-width:82%; padding:8px 12px; font-size:15px; line-height:1.35; border-radius:18px; border-bottom-right-radius:6px; background:rgba(203,251,69,0.17); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border:1px solid rgba(203,251,69,0.3); color:#f2f4ec; font-weight:600; animation:msgIn .32s cubic-bezier(.22,1,.36,1);'
+          : 'width:fit-content; max-width:82%; padding:8px 12px; font-size:15px; line-height:1.35; border-radius:18px; border-bottom-left-radius:6px; background:rgba(31,34,27,0.17); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,0.08); color:#f2f4ec; animation:msgIn .32s cubic-bezier(.22,1,.36,1);',
+        timeStyle: `font-size:10px; font-weight:500; opacity:.5; margin-top:3px; ${isUser ? 'text-align:right;' : 'text-align:left;'}`
+      };
+    });
+
+    const chips = ['Составь план на неделю', 'Что съесть перед бегом?', 'Как дела с прогрессом?'].map(label => ({
+      label,
+      onTap: () => this.send(label)
+    }));
+
+    const hasText = this.state.draft.trim().length > 0;
+
+    return {
+      messages,
+      chips,
+      typing: this.state.typing,
+      draft: this.state.draft,
+      hasText,
+      noText: !hasText,
+      onInput: (e) => this.setState({ draft: e.target.value }),
+      onSend: () => this.send(),
+      onClear: () => this.clear()
+    };
+  }
+}
+</script>
+</body>
+</html>
